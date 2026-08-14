@@ -2,6 +2,8 @@
 
 [English](README.md) | 中文
 
+**已进行 1 个改动，具体信息见 [change-logs/](change-logs/README.md)。**
+
 DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness（智能体框架）。
 
 它采用**一切皆插件**的架构，并由 [Cordis](https://github.com/cordiverse/cordis) 驱动，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)。
