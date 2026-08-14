@@ -109,6 +109,16 @@ dsh --profile demo
 
 `dsh plugin --profile demo remove dsh-hello-plugin` removes both the dependency and the layer.
 
+## Validate a bundle with dsh plugin check
+
+`dsh plugin check <directory>` validates a bundle without installing, networking, or spawning a subprocess: it parses the patch layer, mock-mounts every inserted plugin entry, and verifies every tool's parameters schema — a malformed schema fails here with the tool named, not at the first model call.
+
+```sh
+dsh plugin check ./hello-plugin   # exit 0 when every row is ok
+```
+
+Run it after every edit. The full extension-point checklist: [Bundle development checklist](./bundle-checklist.md).
+
 ## The loading order
 
 The effective configuration composes over an empty root by applying, in order:
