@@ -457,6 +457,91 @@ export function parameterSchemaSpecToJsonSchema(spec: ParameterSchemaSpec): Para
   return schema
 }
 
+/** One-line fix hint included in every register-time parameters error. */
+const REGISTER_PARAMETERS_FIX_HINT = 'Fix: pass a complete JSON Schema ({ type: \'object\', properties, required, additionalProperties }) or a defineTool-style property table ({ field: { type, required } }) — property tables are converted automatically'
+
+/**
+ * Reject structural violations of the full JSON Schema form accepted by
+ * {@link normalizeRegisteredParameters}. The enforced subset is deliberately
+ * shallow: the schema is forwarded byte-for-byte to the model API, so only
+ * the root contract that breaks the model-side parser is checked here.
+ * @param name - the tool name, included in every error.
+ * @param parameters - a schema whose root is `type: 'object'`.
+ */
+function assertObjectParameters(name: string, parameters: Record<string, unknown>): void {
+  const properties = parameters.properties
+  if (!isJsonSchemaRecord(properties)) {
+    throw new Error(`tool "${name}": invalid parameters schema: properties must be an object of property schemas. ${REGISTER_PARAMETERS_FIX_HINT}`)
+  }
+  for (const [key, value] of Object.entries(properties)) {
+    if (!isJsonSchemaRecord(value)) {
+      throw new Error(`tool "${name}": invalid parameters schema: properties.${key} must be a schema object. ${REGISTER_PARAMETERS_FIX_HINT}`)
+    }
+  }
+  if (Object.hasOwn(parameters, 'required')) {
+    const required = parameters.required
+    if (!isPlainJsonArray(required) || required.some(entry => typeof entry !== 'string')) {
+      throw new Error(`tool "${name}": invalid parameters schema: required must be an array of property names. ${REGISTER_PARAMETERS_FIX_HINT}`)
+    }
+    for (const key of required as string[]) {
+      if (!Object.hasOwn(properties, key)) {
+        throw new Error(`tool "${name}": invalid parameters schema: required names "${key}" which is not in properties. ${REGISTER_PARAMETERS_FIX_HINT}`)
+      }
+    }
+  }
+}
+
+/**
+ * Detect the defineTool-style property-table form: no top-level `type` key
+ * (a parameter literally named `type` has an object value, not a string) and
+ * every value an object declaring a `type` string. An empty map is a valid
+ * (empty) property table.
+ * @param candidate - the caller-provided parameters object.
+ * @returns whether every value looks like one property schema.
+ */
+function isPropertyTable(candidate: Record<string, unknown>): boolean {
+  if (typeof candidate.type === 'string') return false
+  for (const value of Object.values(candidate)) {
+    if (!isJsonSchemaRecord(value) || typeof value.type !== 'string') return false
+  }
+  return true
+}
+
+/**
+ * Normalize the `parameters` a caller passes to `tools.register`, so an
+ * invalid or legacy schema fails at registration instead of at the first
+ * model call. Two input forms are accepted:
+ * - a complete JSON Schema rooted at `type: 'object'` — structurally
+ *   validated, then returned byte-for-byte unchanged (the model-facing wire
+ *   format is never rewritten);
+ * - a defineTool-style property table (`{ field: { type, required? } }`)
+ *   with no top-level `type` key — converted through
+ *   {@link parameterSchemaSpecToJsonSchema} into a new full schema.
+ * Anything else throws a tool-named error explaining both supported forms.
+ * @param name - the tool name, included in every error.
+ * @param parameters - the caller-provided parameters object.
+ * @returns the model-facing parameters object: the input itself for the
+ * full-schema form, a new converted object for the property-table form.
+ */
+export function normalizeRegisteredParameters(
+  name: string,
+  parameters: Record<string, unknown>,
+): Record<string, unknown> {
+  if (isJsonSchemaRecord(parameters) && parameters.type === 'object') {
+    assertObjectParameters(name, parameters)
+    return parameters
+  }
+  if (isPropertyTable(parameters)) {
+    try {
+      return parameterSchemaSpecToJsonSchema(parameters as ParameterSchemaSpec) as unknown as Record<string, unknown>
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw new Error(`tool "${name}": invalid property-table parameters: ${detail}. ${REGISTER_PARAMETERS_FIX_HINT}`)
+    }
+  }
+  throw new Error(`tool "${name}": unsupported parameters — pass a complete JSON Schema rooted at type "object" or a defineTool-style property table ({ field: { type, required } }); this API converts property tables automatically`)
+}
+
 /** Invalid model-generated arguments for a typed tool. */
 export class ToolArgsError extends HarnessError {
   /** Individual violations in schema-walk order. */

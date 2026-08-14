@@ -1957,10 +1957,12 @@ describe('ToolRuntime', () => {
 
   it('rejects schema projection when a raw registration is not lossless JSON', async () => {
     const ctx = await setup()
+    // Structurally valid (properties present), but the `default` annotation is
+    // not lossless JSON — register accepts it, projection must reject it.
     ctx.tools.register({
       ...echoTool,
       name: 'lossy-schema',
-      parameters: { type: 'object', default: Number.NaN },
+      parameters: { type: 'object', properties: { x: { type: 'string' } }, default: Number.NaN },
     })
 
     expect(() => ctx.tools.schemas())
