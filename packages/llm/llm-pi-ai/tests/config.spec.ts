@@ -24,6 +24,15 @@ describe('reasoning schema boundary', () => {
     expect(configWith({ reasoningEfforts: { high: 42 } })).toThrow()
   })
 
+  it('accepts the reserved default key as a mapping onto a thinking level', () => {
+    expect(configWith({ reasoningEfforts: { default: 'medium' } })).not.toThrow()
+    expect(configWith({ reasoningEfforts: { default: 'medium', medium: 'medium' } })).not.toThrow()
+    // The settings seam runs this validator at registration: a schema-only
+    // accept that then failed here would still unmount every custom route.
+    expect(() => { assertServiceable(configWith({ reasoningEfforts: { default: 'medium' } })() as Config) })
+      .not.toThrow()
+  })
+
   it('keeps false distinguishable from an absent declaration', () => {
     type Materialized = { providers: Record<string, { models?: { reasoningEfforts?: unknown }[] }> }
     const withFalse = configWith({ reasoningEfforts: false })() as Materialized

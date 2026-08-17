@@ -682,6 +682,84 @@ describe('per-model reasoning efforts', () => {
     expect(declare({ high: null })).toThrow(/only "off" may leave it empty/)
     expect(declare({ high: '' })).toThrow(/must not be an empty string/)
   })
+
+  it('maps reasoningEfforts.default onto the model default without treating it as a level', () => {
+    const model = modelOf(declared([{
+      id: 'm',
+      reasoningEfforts: { default: 'medium', off: null, medium: 'medium', high: 'high' },
+    }]))
+    expect(getSupportedThinkingLevels(model)).toEqual(['off', 'medium', 'high'])
+    expect(resolveProfiles(declared([{
+      id: 'm',
+      reasoningEfforts: { default: 'medium', off: null, medium: 'medium', high: 'high' },
+    }])).get('acme-gateway')?.configuredDefaultEfforts.get('m')).toBe('medium')
+  })
+
+  it('treats a default-only declaration as the sole thinking level on a hand-declared model', () => {
+    const providers = declared([{ id: 'm', reasoningEfforts: { default: 'medium' } }])
+    const model = modelOf(providers)
+    expect(model.reasoning).toBe(true)
+    expect(getSupportedThinkingLevels(model)).toEqual(['medium'])
+    expect(resolveProfiles(providers).get('acme-gateway')?.configuredDefaultEfforts.get('m')).toBe('medium')
+  })
+
+  it('keeps a catalog model’s offer when only default is named', () => {
+    const [catalogModel] = getBuiltinModels('deepseek')
+    if (catalogModel === undefined) throw new Error('the installed catalog ships no deepseek model')
+    const offered = getSupportedThinkingLevels(catalogModel as Model<Api>)
+    const pick = offered.find(level => level !== 'off')
+    if (pick === undefined) throw new Error('the installed deepseek model offers no thinking level')
+
+    const providers = { deepseek: { models: [{ id: catalogModel.id, reasoningEfforts: { default: pick } }] } }
+    const model = modelOf(providers, 'deepseek')
+    expect(getSupportedThinkingLevels(model)).toEqual(offered)
+    expect(resolveProfiles(providers).get('deepseek')?.configuredDefaultEfforts.get(catalogModel.id)).toBe(pick)
+  })
+
+  it('rejects a default that the model does not offer', () => {
+    const declare = (efforts: NonNullable<LlmPiAi.PiAiModelProfile['reasoningEfforts']>): (() => unknown) =>
+      () => resolveProfiles(declared([{ id: 'm', reasoningEfforts: efforts }]))
+
+    expect(declare({ default: 'medium', high: 'high' })).toThrow(/not among the levels this model offers/)
+    expect(declare({ default: 'quantum' as never, high: 'high' })).toThrow(/is not a thinking level/)
+    expect(declare({ default: null as never, high: 'high' })).toThrow(/must name a thinking level/)
+    expect(declare({ default: '' as never, high: 'high' })).toThrow(/must name a thinking level/)
+    expect(declare({ default: 'off' })).toThrow(/offers no level beyond "off"/)
+    // A dict whose only keys are neither levels nor `default` still has to
+    // fail as an empty offer: resolution, not the schema, is what names the
+    // model, and a direct resolveProfiles call never saw the schema.
+    expect(declare({ ultra: 'x' } as never)).toThrow(/empty reasoningEfforts/)
+  })
+
+  it('rejects a catalog default that the installed offer cannot take', () => {
+    const [catalogModel] = getBuiltinModels('deepseek')
+    if (catalogModel === undefined) throw new Error('the installed catalog ships no deepseek model')
+    const offered = new Set(getSupportedThinkingLevels(catalogModel as Model<Api>))
+    const missing = (['minimal', 'low', 'medium', 'xhigh'] as const).find(level => !offered.has(level))
+    if (missing === undefined) throw new Error('the installed deepseek model offers every intermediate level')
+    expect(() => resolveProfiles({
+      deepseek: { models: [{ id: catalogModel.id, reasoningEfforts: { default: missing } }] },
+    })).toThrow(/not among the levels this model offers/)
+  })
+
+  it('refuses a default-only declaration on a non-reasoning catalog model', () => {
+    const nonReasoning = getBuiltinModels('openai').find(model => model.reasoning !== true)
+    if (nonReasoning === undefined) throw new Error('the installed openai catalog ships no non-reasoning model')
+    expect(() => resolveProfiles({
+      openai: { models: [{ id: nonReasoning.id, reasoningEfforts: { default: 'medium' } }] },
+    })).toThrow(/cannot land on a non-reasoning catalog/)
+  })
+
+  it('accepts off as a default when Off is among the declared levels', () => {
+    expect(resolveProfiles(declared([{
+      id: 'm',
+      reasoningEfforts: { default: 'off', off: null, high: 'high' },
+    }])).get('acme-gateway')?.configuredDefaultEfforts.get('m')).toBe('off')
+    expect(resolveProfiles(declared([{
+      id: 'm',
+      reasoningEfforts: { default: 'off', off: 'none', high: 'high' },
+    }])).get('acme-gateway')?.configuredDefaultEfforts.get('m')).toBe('off')
+  })
 })
 
 describe('modelOverrides', () => {
