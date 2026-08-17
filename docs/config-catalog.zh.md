@@ -1021,7 +1021,8 @@ export interface PiAiModelProfile {
    * entry's capability (a hand-declared model has none and does not reason);
    * `false` declares a non-reasoning model, which is how a profile strips
    * reasoning from a catalog model its gateway cannot serve; a non-empty dict
-   * declares the offered levels and their wire spellings.
+   * declares the offered levels and their wire spellings. The reserved
+   * `default` key picks this model's deployment default among those levels.
    */
   reasoningEfforts?: false | PiAiReasoningEfforts
   /** Reasoning-dispatch switches for this model, winning over the route's. */
@@ -1063,8 +1064,19 @@ export type PiAiModality = Model<Api>['input'][number]
  * nothing" — because for most providers not thinking is the parameter's
  * absence; every other declared level must name a wire value. A level absent
  * from the dict is not offered.
+ *
+ * `default` is not a level: it names the canonical thinking level this model
+ * uses when a request names none, winning over the route-level `reasoning`
+ * field for this model only. Its value must be a level the model actually
+ * offers. A dict that contains only `default` keeps the installed catalog
+ * entry's offer (a hand-declared model has none, so it offers the named
+ * default with that canonical spelling) instead of being read as an empty
+ * offer — that is the spelling for "keep the levels, pick the default".
  */
-export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | null>>
+export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | null>> & {
+  /** Canonical thinking level used when a request names none. */
+  default?: ModelThinkingLevel
+}
 
 /** One reasoning-dispatch wire format a profile may name. */
 export type PiAiThinkingFormat = Exclude<PiThinkingFormat, WithheldThinkingFormat>

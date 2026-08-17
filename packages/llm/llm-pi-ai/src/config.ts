@@ -166,6 +166,12 @@ export interface ResolvedPiAiProviderProfile
    * own, so a catalog capability must not appear here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /**
+   * Per-model deployment defaults named via `reasoningEfforts.default`.
+   * The adapter consults this before the route-level `reasoning` field, so
+   * one model can default to `medium` without forcing every sibling to.
+   */
+  configuredDefaultEfforts: ReadonlyMap<string, ModelThinkingLevel>
 }
 
 /** Plugin configuration: the provider routes this instance owns. */
@@ -191,18 +197,24 @@ const compatProfile: z<PiAiCompatProfile> = z.object({
 })
 
 /**
- * Keys are the offered levels, values their wire spellings. A valueless key
- * (`off:`) survives validation because schemastery passes nullable data
- * through before any member schema runs — `z.const(null)` only controls the
- * error for non-null wrong values and what a configuration UI renders.
- * Only resolution decides which levels may leave the value empty, so the
- * diagnostic can name the route and model. The assertion narrows
- * schemastery's `Dict`, which types every literal key as required; dict
- * validation checks only present keys, so the runtime value is a partial record.
+ * Keys are the offered levels plus the reserved `default` selector, values
+ * their wire spellings (or, for `default`, the canonical level to use when
+ * a request names none). A valueless key (`off:`) survives validation
+ * because schemastery passes nullable data through before any member schema
+ * runs — `z.const(null)` only controls the error for non-null wrong values
+ * and what a configuration UI renders. Only resolution decides which keys
+ * may leave the value empty, so the diagnostic can name the route and
+ * model. The assertion narrows schemastery's `Dict`, which types every
+ * literal key as required; dict validation checks only present keys, so
+ * the runtime value is a partial record.
+ *
+ * `default` must be a key the schema accepts: treating it as an unknown
+ * thinking level rejects the whole `llm-pi-ai` section at registration,
+ * which unmounts every custom provider and disables the add button.
  */
 const reasoningEfforts = z.dict(
   z.union([z.string(), z.const(null)]),
-  z.union(THINKING_LEVELS),
+  z.union([...THINKING_LEVELS, 'default']),
 ) as unknown as z<PiAiReasoningEfforts>
 
 /** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */
@@ -358,6 +370,7 @@ export function resolveProfiles(
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog.configuredMaxTokens,
+      configuredDefaultEfforts: catalog.configuredDefaultEfforts,
       piProvider: buildProvider({
         provider,
         displayName,

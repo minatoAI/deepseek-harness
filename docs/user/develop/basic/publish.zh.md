@@ -109,6 +109,16 @@ dsh --profile demo
 
 `dsh plugin --profile demo remove dsh-hello-plugin` 会同时移除依赖和对应的层。
 
+## 用 dsh plugin check 验证组合包
+
+`dsh plugin check <目录>` 在本地校验组合包，不安装、不联网、不启动子进程：解析 patch 层、mock 挂载每一行插入的插件入口、校验每个工具的 parameters schema——坏 schema 会在这里以带工具名的错误失败，而不是等到第一次模型调用。
+
+```sh
+dsh plugin check ./hello-plugin   # exit 0 when every row is ok
+```
+
+每次改动后都跑一遍。完整扩展面检查清单：[组合包开发检查清单](./bundle-checklist.md)。
+
 ## 加载顺序
 
 生效配置在空根之上按以下顺序逐层组合：

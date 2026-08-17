@@ -14,6 +14,7 @@
 
 import { builtinProviders, getBuiltinModels, getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
 import type { BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
+import { getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type {
   Api,
   Model,
@@ -179,8 +180,19 @@ export function catalogModels(provider: string): Map<string, Model<Api>> {
  * nothing" — because for most providers not thinking is the parameter's
  * absence; every other declared level must name a wire value. A level absent
  * from the dict is not offered.
+ *
+ * `default` is not a level: it names the canonical thinking level this model
+ * uses when a request names none, winning over the route-level `reasoning`
+ * field for this model only. Its value must be a level the model actually
+ * offers. A dict that contains only `default` keeps the installed catalog
+ * entry's offer (a hand-declared model has none, so it offers the named
+ * default with that canonical spelling) instead of being read as an empty
+ * offer — that is the spelling for "keep the levels, pick the default".
  */
-export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | null>>
+export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | null>> & {
+  /** Canonical thinking level used when a request names none. */
+  default?: ModelThinkingLevel
+}
 
 /**
  * Reasoning-dispatch compatibility switches, set on the route (its models'
@@ -230,7 +242,8 @@ export interface PiAiModelProfile {
    * entry's capability (a hand-declared model has none and does not reason);
    * `false` declares a non-reasoning model, which is how a profile strips
    * reasoning from a catalog model its gateway cannot serve; a non-empty dict
-   * declares the offered levels and their wire spellings.
+   * declares the offered levels and their wire spellings. The reserved
+   * `default` key picks this model's deployment default among those levels.
    */
   reasoningEfforts?: false | PiAiReasoningEfforts
   /** Reasoning-dispatch switches for this model, winning over the route's. */
@@ -293,6 +306,37 @@ interface ModelReasoning {
   reasoning: boolean
   /** The map dispatch reads; absent only when the installed entry's (or none) applies. */
   thinkingLevelMap?: ThinkingLevelMap
+  /**
+   * Per-model deployment default when a request names none. Only present when
+   * the entry named `reasoningEfforts.default`; the adapter still has to
+   * check the exact model can take it.
+   */
+  defaultEffort?: ModelThinkingLevel
+}
+
+/**
+ * The reserved `default` key, when present and well-typed. Resolution, not
+ * the schema, names the route and model when the value is empty or unknown:
+ * schemastery would otherwise only say the key is wrong.
+ * @param provider - provider route key, for diagnostics.
+ * @param modelId - model id, for diagnostics.
+ * @param efforts - the declared dict (already known not to be `false`).
+ * @returns the named canonical level, or `undefined` when the key is absent.
+ */
+function declaredDefaultEffort(
+  provider: string,
+  modelId: string,
+  efforts: PiAiReasoningEfforts,
+): ModelThinkingLevel | undefined {
+  if (!Object.hasOwn(efforts, 'default')) return undefined
+  const named = efforts.default
+  if (named === undefined || named === null || typeof named !== 'string' || named.length === 0) {
+    invalid(provider, `model "${modelId}" reasoningEfforts.default must name a thinking level`)
+  }
+  if (!(named in THINKING_LEVEL_GATE)) {
+    invalid(provider, `model "${modelId}" reasoningEfforts.default "${named}" is not a thinking level`)
+  }
+  return named
 }
 
 /**
@@ -307,6 +351,13 @@ interface ModelReasoning {
  * exception: it stays absent from the map, which pi-ai reads as "supported,
  * send nothing" — the correct dispatch where not thinking is the parameter's
  * absence — while `off` with a value sends that value.
+ *
+ * `default` is not a level and is stripped before the offer is built. A dict
+ * that names only `default` inherits the installed catalog's offer — or, on a
+ * hand-declared model with no catalog offer, publishes the named default as
+ * the sole thinking level with that canonical spelling — so
+ * `reasoningEfforts: { default: medium }` is a complete, serviceable
+ * declaration rather than an empty one.
  * @param provider - provider route key, for diagnostics.
  * @param entry - the configured model entry.
  * @param base - the installed catalog entry of the same id, when one exists.
@@ -338,10 +389,48 @@ function resolveModelReasoning(
     invalid(provider, `model "${entry.id}" has an empty reasoningEfforts; declare the offered levels, set`
       + ' false for a non-reasoning model, or omit the field to keep the installed catalog\'s capability')
   }
+  const defaultEffort = declaredDefaultEffort(provider, entry.id, efforts)
+  const withDefault = (fields: ModelReasoning): ModelReasoning => (
+    defaultEffort === undefined ? fields : { ...fields, defaultEffort }
+  )
   const declared = THINKING_LEVELS.flatMap((level) => {
     const wire = efforts[level]
     return wire === undefined ? [] : [[level, wire] as const]
   })
+  if (declared.length === 0) {
+    // Only `default` was named. A catalog reasoning model keeps its offer
+    // and just picks the default; a catalog non-reasoning model still has
+    // no levels, so a default cannot land there. A hand-declared model has
+    // no catalog offer, so the named default becomes the sole thinking
+    // level with that canonical spelling — `{ default: medium }` is a
+    // complete declaration rather than an empty one.
+    if (base?.reasoning === true) {
+      if (defaultEffort !== undefined && !getSupportedThinkingLevels(base).includes(defaultEffort)) {
+        invalid(provider, `model "${entry.id}" reasoningEfforts.default "${defaultEffort}" is not among the`
+          + ' levels this model offers')
+      }
+      return withDefault({ reasoning: true })
+    }
+    if (base !== undefined) {
+      invalid(provider, `model "${entry.id}" reasoningEfforts.default cannot land on a non-reasoning catalog`
+        + ' model; declare the offered levels, or set reasoningEfforts to false')
+    }
+    if (defaultEffort === undefined) {
+      invalid(provider, `model "${entry.id}" has an empty reasoningEfforts; declare the offered levels, set`
+        + ' false for a non-reasoning model, or omit the field to keep the installed catalog\'s capability')
+    }
+    if (defaultEffort === 'off') {
+      invalid(provider, `model "${entry.id}" reasoningEfforts offers no level beyond "off"; declare a thinking`
+        + ' level, or set reasoningEfforts to false for a non-reasoning model')
+    }
+    return {
+      reasoning: true,
+      thinkingLevelMap: Object.fromEntries(
+        THINKING_LEVELS.map(level => [level, level === defaultEffort ? defaultEffort : null]),
+      ),
+      defaultEffort,
+    }
+  }
   for (const [level, wire] of declared) {
     if (wire === null) {
       if (level !== 'off') {
@@ -365,7 +454,16 @@ function resolveModelReasoning(
       map[level] = wire
     }
   }
-  return { reasoning: true, thinkingLevelMap: map }
+  if (defaultEffort !== undefined) {
+    const offered = defaultEffort === 'off'
+      ? !Object.hasOwn(map, 'off') || map.off !== null
+      : typeof map[defaultEffort] === 'string'
+    if (!offered) {
+      invalid(provider, `model "${entry.id}" reasoningEfforts.default "${defaultEffort}" is not among the`
+        + ' levels this model offers')
+    }
+  }
+  return withDefault({ reasoning: true, thinkingLevelMap: map })
 }
 
 /**
@@ -433,6 +531,13 @@ export interface RouteCatalog {
    * picked, so only an explicit configuration lands here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /**
+   * Per-model deployment defaults this profile named via
+   * `reasoningEfforts.default`. Separate from the route-level `reasoning`
+   * field: that one applies to every model on the route, while this map is
+   * the per-model override the adapter consults first.
+   */
+  configuredDefaultEfforts: ReadonlyMap<string, ModelThinkingLevel>
 }
 
 /**
@@ -489,6 +594,7 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     || request.compat?.supportsReasoningEffort !== undefined
   const seen = new Set<string>()
   const configuredMaxTokens = new Map<string, number>()
+  const configuredDefaultEfforts = new Map<string, ModelThinkingLevel>()
   const models = entries.map((entry) => {
     if (entry.id.length === 0) invalid(provider, 'has a model with an empty id')
     if (seen.has(entry.id)) invalid(provider, `lists model "${entry.id}" more than once`)
@@ -518,6 +624,8 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     // Only a value the profile named is a deployment choice; the catalog's is
     // the model's capability and stays out of request defaults.
     if (entry.maxTokens !== undefined) configuredMaxTokens.set(entry.id, entry.maxTokens)
+    const { defaultEffort, ...reasoning } = resolveModelReasoning(provider, entry, base)
+    if (defaultEffort !== undefined) configuredDefaultEfforts.set(entry.id, defaultEffort)
     return {
       // The installed entry lays the floor, and the fields below override it.
       // Enumerating instead would silently drop every `Model` field this
@@ -534,7 +642,7 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
       cost: base?.cost ?? NO_COST,
       contextWindow,
       maxTokens,
-      ...resolveModelReasoning(provider, entry, base),
+      ...reasoning,
       ...resolveModelCompat(provider, entry, request.compat, base, api),
     }
   })
@@ -542,5 +650,5 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
     invalid(provider, 'sets compat reasoning switches, but no model on the route speaks openai-completions;'
       + ' thinkingFormat and supportsReasoningEffort exist only on that protocol')
   }
-  return { models, configuredMaxTokens }
+  return { models, configuredMaxTokens, configuredDefaultEfforts }
 }

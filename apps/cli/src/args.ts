@@ -44,8 +44,17 @@ interface PluginInvocation {
   args: string[]
 }
 
+/** Validate a bundle locally with `dsh plugin check` (no profile, no pnpm). */
+interface PluginCheckInvocation {
+  mode: 'plugin-check'
+  /** Bundle directory path (local-only validation). */
+  target: string
+  /** Render the report as JSON instead of text. */
+  json: boolean
+}
+
 /** The resolved `dsh` invocation. Help, version, and errors exit inside {@link parseDshArgs}. */
-export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation
+export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation | PluginCheckInvocation
 
 /** Launcher flags shared by the default command and the `web` alias. */
 interface BootOptions {
@@ -168,13 +177,23 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
       resolved = resolveBoot(web, 'web', options, args)
     })
 
-  const plugin = program.command('plugin').description('manage a profile\'s plugins by forwarding the remaining arguments to pnpm in the profile directory')
+  const plugin = program.command('plugin').description('manage a profile\'s plugins by forwarding the remaining arguments to pnpm in the profile directory (or validate a bundle locally with "check <path>")')
   plugin
-    .requiredOption('--profile <name>', 'the profile whose plugins to manage (initialized on first use)')
+    // `check` needs no profile; every pnpm-forwarded verb still does. The
+    // option is therefore plain, with the requirement enforced in the action.
+    .option('--profile <name>', 'the profile whose plugins to manage (initialized on first use)')
     .allowUnknownOption()
-    .argument('[args...]', 'pnpm arguments, forwarded verbatim (add <pkg>, remove <pkg>, why <pkg>, ...)')
-    .action((args: string[], options: { profile: string }) => {
+    .argument('[args...]', 'pnpm arguments, forwarded verbatim (add <pkg>, remove <pkg>, why <pkg>, ...); "check <path> [--json]" validates a bundle locally')
+    .action((args: string[], options: { profile?: string }) => {
       rejectParentOptions('plugin')
+      if (args[0] === 'check') {
+        if (args.length < 2) program.error('error: plugin check needs a bundle path (a local bundle directory)')
+        const target = args[1]
+        if (target === undefined) program.error('error: plugin check needs a bundle path (a local bundle directory)')
+        resolved = { mode: 'plugin-check', target, json: args.slice(2).includes('--json') }
+        return
+      }
+      if (options.profile === undefined) program.error('error: --profile <name> is required')
       if (options.profile === '') program.error('error: --profile needs a name')
       if (args.length === 0) program.error('error: plugin needs pnpm arguments to forward (e.g. add <package>)')
       resolved = { mode: 'plugin', profile: options.profile, args }
