@@ -795,6 +795,56 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
   })
 })
 
+describe('argument validation diagnostics', () => {
+  it('identifies a missing outer run_code parameter by its full tool path', async () => {
+    const { ctx } = await setup({ mode: 'code' })
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('missing-description'),
+      name: RUN_CODE_NAME,
+      arguments: { code: 'return "ok"' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.error).toEqual({
+      message: 'invalid arguments: missing required property "run_code.description"',
+      info: { name: 'ToolArgsError', code: 'INVALID_ARGS' },
+    })
+  })
+
+  it('identifies a missing Code Mode sub-tool parameter by its own full path', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    ctx.tools.register(defineTool({
+      name: 'pwsh',
+      description: 'Test-only PowerShell-shaped tool.',
+      parameters: {
+        command: { type: 'string', required: true },
+        description: { type: 'string', required: true },
+      },
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      execute: args => Promise.resolve(args.command),
+    }))
+    runtime.behavior = async (request) => {
+      try {
+        await request.bindings[0]!.functions.pwsh!({ command: 'Write-Host hello' })
+        return { logs: [], value: 'unreachable' }
+      } catch (error: unknown) {
+        return { logs: [], value: error instanceof Error ? error.message : String(error) }
+      }
+    }
+
+    const result = await runCode(ctx, 'await tools.pwsh({ command: "Write-Host hello" })')
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{
+      type: 'text',
+      text: 'invalid arguments: missing required property "pwsh.description"',
+    }])
+  })
+})
+
 describe('the run_code dispatch bridge', () => {
   it('bridges tool calls, returns only the curated output, and logs one event per dispatch', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })

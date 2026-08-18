@@ -340,6 +340,15 @@ describe('registration', () => {
 })
 
 describe('argument validation', () => {
+  it('qualifies a missing description with the pwsh tool name', async () => {
+    const { ctx } = await setup()
+    const result = await call(ctx, 'pwsh', { command: 'Write-Output hi' })
+    expect(result.error).toMatchObject({
+      message: 'invalid arguments: missing required property "pwsh.description"',
+      info: { name: 'ToolArgsError', code: 'INVALID_ARGS' },
+    })
+  })
+
   it('rejects a blank command or description and a non-positive timeoutMs', async () => {
     const { ctx } = await setup()
     expect(text(await call(ctx, 'pwsh', { command: '  ', description: 'd' }))).toContain('expected a non-empty string')

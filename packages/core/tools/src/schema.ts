@@ -650,7 +650,10 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
   }
   const parameters = parameterSchemaSpecToJsonSchema(options.parameters)
   const outputSchema = valueSchemaSpecToJsonSchema(options.output.schema)
-  const validate = (args: unknown): string[] => validateJsonSchemaValue(parameters, args, '')
+  // Root diagnostics at the owning tool so same-named parameters remain
+  // unambiguous across direct calls and Code Mode sub-dispatches (for example,
+  // `run_code.description` versus `pwsh.description`).
+  const validate = (args: unknown): string[] => validateJsonSchemaValue(parameters, args, options.name)
   const tool: ToolDefinition = {
     name: options.name,
     description: options.description,

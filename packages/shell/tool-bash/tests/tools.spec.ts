@@ -326,13 +326,13 @@ describe('bash tool', () => {
   // Type and required-key violations are rejected by the harness
   // (defineTool validates against the ParameterSchemaSpec — the arg-validation Agent Note) before execute.
   it.each([
-    [{}, /missing required property "command"/],
-    [{ command: 42, description: 'd' }, /"command" must be a string/],
-    [{ command: 'x' }, /missing required property "description"/],
-    [{ command: 'x', description: 7 }, /"description" must be a string/],
-    [{ command: 'x', description: 'd', timeoutMs: 'soon' }, /"timeoutMs" must be a number/],
-    [{ command: 'x', description: 'd', workdir: 7 }, /"workdir" must be a string/],
-    [{ command: 'x', description: 'd', run_in_background: 'yes' }, /"run_in_background" must be a boolean/],
+    [{}, /missing required property "bash.command"/],
+    [{ command: 42, description: 'd' }, /"bash.command" must be a string/],
+    [{ command: 'x' }, /missing required property "bash.description"/],
+    [{ command: 'x', description: 7 }, /"bash.description" must be a string/],
+    [{ command: 'x', description: 'd', timeoutMs: 'soon' }, /"bash.timeoutMs" must be a number/],
+    [{ command: 'x', description: 'd', workdir: 7 }, /"bash.workdir" must be a string/],
+    [{ command: 'x', description: 'd', run_in_background: 'yes' }, /"bash.run_in_background" must be a boolean/],
   ])('rejects schema-invalid args %j', async (args, pattern) => {
     const ctx = await setup()
     const result = await call(ctx, 'bash', args)
