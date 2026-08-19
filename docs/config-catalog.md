@@ -1063,13 +1063,16 @@ export type PiAiModality = Model<Api>['input'][number]
  * absence; every other declared level must name a wire value. A level absent
  * from the dict is not offered.
  *
- * `default` is not a level: it names the canonical thinking level this model
- * uses when a request names none, winning over the route-level `reasoning`
- * field for this model only. Its value must be a level the model actually
- * offers. A dict that contains only `default` keeps the installed catalog
- * entry's offer (a hand-declared model has none, so it offers the named
- * default with that canonical spelling) instead of being read as an empty
- * offer — that is the spelling for "keep the levels, pick the default".
+ * `default` is not a level key: it names the canonical thinking level this
+ * model uses when a request names none, winning over the route-level
+ * `reasoning` field for this model only. The named level is itself part of
+ * the offer — a dict that names level keys plus `default` offers the keys
+ * plus the default level (with the canonical spelling, unless a key restates
+ * it), so `{ default: medium, high: high }` offers medium and high. A dict
+ * that contains only `default` keeps the installed catalog entry's offer (a
+ * hand-declared model has none, so it offers the named default with that
+ * canonical spelling) instead of being read as an empty offer — that is the
+ * spelling for "keep the levels, pick the default".
  */
 export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | null>> & {
   /** Canonical thinking level used when a request names none. */

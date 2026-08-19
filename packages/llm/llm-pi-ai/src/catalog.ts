@@ -181,13 +181,16 @@ export function catalogModels(provider: string): Map<string, Model<Api>> {
  * absence; every other declared level must name a wire value. A level absent
  * from the dict is not offered.
  *
- * `default` is not a level: it names the canonical thinking level this model
- * uses when a request names none, winning over the route-level `reasoning`
- * field for this model only. Its value must be a level the model actually
- * offers. A dict that contains only `default` keeps the installed catalog
- * entry's offer (a hand-declared model has none, so it offers the named
- * default with that canonical spelling) instead of being read as an empty
- * offer — that is the spelling for "keep the levels, pick the default".
+ * `default` is not a level key: it names the canonical thinking level this
+ * model uses when a request names none, winning over the route-level
+ * `reasoning` field for this model only. The named level is itself part of
+ * the offer — a dict that names level keys plus `default` offers the keys
+ * plus the default level (with the canonical spelling, unless a key restates
+ * it), so `{ default: medium, high: high }` offers medium and high. A dict
+ * that contains only `default` keeps the installed catalog entry's offer (a
+ * hand-declared model has none, so it offers the named default with that
+ * canonical spelling) instead of being read as an empty offer — that is the
+ * spelling for "keep the levels, pick the default".
  */
 export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | null>> & {
   /** Canonical thinking level used when a request names none. */
@@ -352,12 +355,15 @@ function declaredDefaultEffort(
  * send nothing" — the correct dispatch where not thinking is the parameter's
  * absence — while `off` with a value sends that value.
  *
- * `default` is not a level and is stripped before the offer is built. A dict
- * that names only `default` inherits the installed catalog's offer — or, on a
- * hand-declared model with no catalog offer, publishes the named default as
- * the sole thinking level with that canonical spelling — so
- * `reasoningEfforts: { default: medium }` is a complete, serviceable
- * declaration rather than an empty one.
+ * `default` is not a level key: it is stripped from the level list before the
+ * offer is built, then the named level re-joins the offer with its canonical
+ * spelling, so `{ default: medium, high: high }` offers medium and high
+ * while naming medium as the model's default — a level is named once, not
+ * once as a key and again as the default. A dict that names only `default`
+ * inherits the installed catalog's offer — or, on a hand-declared model with
+ * no catalog offer, publishes the named default as the sole thinking level
+ * with that canonical spelling — so `reasoningEfforts: { default: medium }`
+ * is a complete, serviceable declaration rather than an empty one.
  * @param provider - provider route key, for diagnostics.
  * @param entry - the configured model entry.
  * @param base - the installed catalog entry of the same id, when one exists.
@@ -441,7 +447,18 @@ function resolveModelReasoning(
       invalid(provider, `model "${entry.id}" reasoningEfforts.${level} must not be an empty string`)
     }
   }
-  if (!declared.some(([level]) => level !== 'off')) {
+  // The named default is itself part of the offer: a deployment that picks a
+  // default asserts that level exists, so it joins the offered set with its
+  // canonical spelling even when the dict does not restate it as a level key
+  // (`{ default: medium, high: high }` offers medium and high). That is the
+  // same claim a default-only dict makes, where the default becomes the sole
+  // offered level — declaring level keys must not *remove* the level the dict
+  // names as its default. A level restated as a key keeps its wire spelling;
+  // only the implicit default falls back to the canonical name.
+  const defaultLevel = defaultEffort === undefined ? undefined : defaultEffort
+  const hasThinkingLevel = declared.some(([level]) => level !== 'off')
+    || (defaultLevel !== undefined && defaultLevel !== 'off')
+  if (!hasThinkingLevel) {
     invalid(provider, `model "${entry.id}" reasoningEfforts offers no level beyond "off"; declare a thinking`
       + ' level, or set reasoningEfforts to false for a non-reasoning model')
   }
@@ -454,14 +471,12 @@ function resolveModelReasoning(
       map[level] = wire
     }
   }
-  if (defaultEffort !== undefined) {
-    const offered = defaultEffort === 'off'
-      ? !Object.hasOwn(map, 'off') || map.off !== null
-      : typeof map[defaultEffort] === 'string'
-    if (!offered) {
-      invalid(provider, `model "${entry.id}" reasoningEfforts.default "${defaultEffort}" is not among the`
-        + ' levels this model offers')
-    }
+  if (defaultLevel === 'off') {
+    // Absence from the map is pi-ai's "supported, send nothing" spelling for
+    // Off; an undeclared Off was pinned null above, so unpin it.
+    if (map.off === null) delete map.off
+  } else if (defaultLevel !== undefined && map[defaultLevel] === null) {
+    map[defaultLevel] = defaultLevel
   }
   return withDefault({ reasoning: true, thinkingLevelMap: map })
 }

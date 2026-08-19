@@ -716,11 +716,38 @@ describe('per-model reasoning efforts', () => {
     expect(resolveProfiles(providers).get('deepseek')?.configuredDefaultEfforts.get(catalogModel.id)).toBe(pick)
   })
 
-  it('rejects a default that the model does not offer', () => {
+  it('offers the named default alongside the declared level keys', () => {
+    const providers = declared([{ id: 'm', reasoningEfforts: { default: 'medium', high: 'high' } }])
+    const model = modelOf(providers)
+    expect(getSupportedThinkingLevels(model)).toEqual(['medium', 'high'])
+    expect(model.thinkingLevelMap).toMatchObject({ medium: 'medium', high: 'high' })
+    expect(resolveProfiles(providers).get('acme-gateway')?.configuredDefaultEfforts.get('m')).toBe('medium')
+  })
+
+  it('keeps the declared wire spelling when a level key restates the default', () => {
+    const model = modelOf(declared([{
+      id: 'm',
+      reasoningEfforts: { default: 'medium', medium: 'balanced', high: 'high' },
+    }]))
+    expect(getSupportedThinkingLevels(model)).toEqual(['medium', 'high'])
+    expect(model.thinkingLevelMap?.['medium']).toBe('balanced')
+  })
+
+  it('accepts off as the default without redeclaring Off among the keys', () => {
+    const providers = declared([{ id: 'm', reasoningEfforts: { default: 'off', high: 'high' } }])
+    expect(getSupportedThinkingLevels(modelOf(providers))).toEqual(['off', 'high'])
+    expect(resolveProfiles(providers).get('acme-gateway')?.configuredDefaultEfforts.get('m')).toBe('off')
+  })
+
+  it('lets a non-off default supply the only thinking level beside declared Off', () => {
+    const model = modelOf(declared([{ id: 'm', reasoningEfforts: { default: 'medium', off: null } }]))
+    expect(getSupportedThinkingLevels(model)).toEqual(['off', 'medium'])
+  })
+
+  it('rejects a default that names an unknown level', () => {
     const declare = (efforts: NonNullable<LlmPiAi.PiAiModelProfile['reasoningEfforts']>): (() => unknown) =>
       () => resolveProfiles(declared([{ id: 'm', reasoningEfforts: efforts }]))
 
-    expect(declare({ default: 'medium', high: 'high' })).toThrow(/not among the levels this model offers/)
     expect(declare({ default: 'quantum' as never, high: 'high' })).toThrow(/is not a thinking level/)
     expect(declare({ default: null as never, high: 'high' })).toThrow(/must name a thinking level/)
     expect(declare({ default: '' as never, high: 'high' })).toThrow(/must name a thinking level/)
