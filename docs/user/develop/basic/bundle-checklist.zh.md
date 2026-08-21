@@ -2,7 +2,7 @@
 
 [English](bundle-checklist.md) | 中文
 
-本清单覆盖组合包（bundle）作者从「可用的本地 patch」走向「可分发的包」时遇到的标准扩展面与常见坑。它与[发布教程](./publish.md)（打包、profile、安装）和[插件配置](./config.md)互补。发布或让用户安装之前，逐条过一遍。
+本清单覆盖组合包（bundle）作者从「可用的本地 patch」走向「可分发的包」时遇到的标准扩展面与常见坑。它与[发布教程](./publish.zh.md)（打包、profile、安装）和[插件配置](./config.zh.md)互补。发布或让用户安装之前，逐条过一遍。
 
 ## 先用 dsh plugin check 做本地校验
 
@@ -43,7 +43,7 @@ ctx.tools.register({
 ## 客户端配置 UI 与凭据
 
 - 插件配置卡的标准 web 设置位是 `settings.plugin.item` 插槽（设置 → 插件 → 配置），由 web settings 包声明，无 owner props。
-- 密钥走[凭据 seam](../../../../packages/credentials/credentials/README.md)：每次操作时 resolve，通过 `credentials.set`/`credentials.unset` 写入/删除，监听 `credentials/updated`，绝不把已存值回传页面——卡片只展示配置状态，不展示密钥本身。
+- 密钥走[凭据 seam](../../../../packages/credentials/credentials/README.zh.md)：每次操作时 resolve，通过 `credentials.set`/`credentials.unset` 写入/删除，监听 `credentials/updated`，绝不把已存值回传页面——卡片只展示配置状态，不展示密钥本身。
 - 凭据引用是稳定名字；用 describe 描述它，让 UI 能给出合理标签。
 
 ## 客户端→主机通道
@@ -54,12 +54,12 @@ ctx.tools.register({
 
 ## 网络传输
 
-- 出站网络调用走 [subprocess 服务](../../../../packages/subprocess/subprocess/README.md)，而不是假设主机进程里有裸 `fetch`：spawn 出来的辅助进程隔离传输，服务负责解析可执行文件并收集输出。
+- 出站网络调用走 [subprocess 服务](../../../../packages/subprocess/subprocess/README.zh.md)，而不是假设主机进程里有裸 `fetch`：spawn 出来的辅助进程隔离传输，服务负责解析可执行文件并收集输出。
 - 系统代理处理是作者的责任：发现代理（Windows 上读 WinINET），给辅助进程设 `NODE_USE_ENV_PROXY`（以及 `HTTP(S)_PROXY`），传输失败时重新发现——jina 组合包用的就是这个模式。
 
 ## 从 git 安装
 
-- git 安装拉取的是源码而非构建产物：要自带自包含的 `prepare` 脚本，并预期用户需要在 profile 的 `pnpm-workspace.yaml` 里用 `allowBuilds` 放行。细节以及 tarball/npm 替代方案：[发布教程](./publish.md#installing-from-github-the-build-script-catch)。
+- git 安装拉取的是源码而非构建产物：要自带自包含的 `prepare` 脚本，并预期用户需要在 profile 的 `pnpm-workspace.yaml` 里用 `allowBuilds` 放行。细节以及 tarball/npm 替代方案：[发布教程](./publish.zh.md#installing-from-github-the-build-script-catch)。
 
 ## 发布之前
 
@@ -69,7 +69,7 @@ ctx.tools.register({
 
 ## 参见
 
-- [打包与安装插件](./publish.md)
-- [插件配置](./config.md)
-- [凭据子系统](../../../subsystems/credentials.md)
-- [子进程子系统](../../../subsystems/subprocess.md)
+- [打包与安装插件](./publish.zh.md)
+- [插件配置](./config.zh.md)
+- [凭据子系统](../../../subsystems/credentials.zh.md)
+- [子进程子系统](../../../subsystems/subprocess.zh.md)

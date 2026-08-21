@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/user/develop/basic/bundle-checklist.md
 bundle-checklist.md: 2888a85a871fb4325e21bd34d4288df0fc2ef1b6
-bundle-checklist.zh.md: 54efb3eb4aef952afe6f2f29c0e3d6803d1a6636
+bundle-checklist.zh.md: 57a0347caadbd091115a775a226d0bd3301b2522
