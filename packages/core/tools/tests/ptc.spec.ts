@@ -810,10 +810,10 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
 
 describe('argument validation diagnostics', () => {
   it('identifies a missing outer run_code parameter by its full tool path', async () => {
-    const { ctx } = await setup({ mode: 'code' })
+    const { ctx } = await setup({ mode: 'ptc' })
     const result = await ctx.tools.execute({
       signal: testToolSignal,
-      callId: CallId('missing-description'),
+      callId: ToolCallId('missing-description'),
       name: RUN_CODE_NAME,
       arguments: { code: 'return "ok"' },
     })
@@ -825,8 +825,8 @@ describe('argument validation diagnostics', () => {
     })
   })
 
-  it('identifies a missing Code Mode sub-tool parameter by its own full path', async () => {
-    const { ctx, runtime } = await setup({ mode: 'code' })
+  it('identifies a missing PTC sub-tool parameter by its own full path', async () => {
+    const { ctx, runtime } = await setup({ mode: 'ptc' })
     ctx.tools.register(defineTool({
       name: 'pwsh',
       description: 'Test-only PowerShell-shaped tool.',
