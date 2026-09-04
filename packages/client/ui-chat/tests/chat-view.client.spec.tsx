@@ -1224,6 +1224,15 @@ describe('ChatView', () => {
     ])
   })
 
+  it('renders region blocks with key-valid guidance distinct from auth', () => {
+    const h = makeHarness({ nodes: [user(1, 'try'), turnError(2, 'REGION_UNSUPPORTED')] })
+    const view = render(<h.ChatView {...h.props} />)
+    const statuses = view.getAllByRole('status')
+    expect(statuses.map(status => status.textContent)).toEqual([
+      '本轮运行失败模型在当前地区不可用（403）。密钥有效，请检查出口地区或 VPN，稍后重试，或切换模型或提供方，详见会话日志。REGION_UNSUPPORTED',
+    ])
+  })
+
   it('renders the max-tokens notice with localized guidance, distinct from turn errors', () => {
     const h = makeHarness({ nodes: [user(1, 'try'), assistant(2, 'truncated'), turnMaxTokens(3)] })
     const view = render(<h.ChatView {...h.props} />)

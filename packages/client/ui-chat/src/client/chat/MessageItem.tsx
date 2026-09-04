@@ -45,7 +45,9 @@ function failureMessage(
   code: unknown,
   t: ChatViewSlotProps['t'],
 ): string {
-  return code === 'AUTH' ? t('message.failure.auth') : message
+  if (code === 'AUTH') return t('message.failure.auth')
+  if (code === 'REGION_UNSUPPORTED') return t('message.failure.region')
+  return message
 }
 
 function ModelRetryItem({ node, active, t }: {

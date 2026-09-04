@@ -798,6 +798,12 @@ describe('mapStopReason / mapUsage', () => {
   it('maps routable HTTP-ish error messages to stable codes', () => {
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 401: bad key' })))
       .toMatchObject({ kind: 'error', failure: { code: 'AUTH' } })
+    expect(mapStopReason(assistant({
+      stopReason: 'error',
+      errorMessage: 'OpenAI API error (403) type RegionError: This model is not available in your country',
+    }))).toMatchObject({ kind: 'error', failure: { code: 'REGION_UNSUPPORTED' } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 403: forbidden' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'AUTH' } })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 429: rate limit' })))
       .toMatchObject({ kind: 'error', failure: { code: 'RATE_LIMIT' } })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 429: insufficient_quota' })))

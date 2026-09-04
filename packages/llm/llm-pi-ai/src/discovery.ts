@@ -335,8 +335,13 @@ export async function discoverModels(
     throw new LlmError(`could not reach ${url}`, 'DISCOVERY_FAILED', { cause: error })
   }
   if (!response.ok) {
+    const hint = response.status === 401
+      ? '; check the API key'
+      : response.status === 403
+        ? '; check the API key or region availability'
+        : ''
     throw new LlmError(
-      `${url} answered ${response.status}${response.status === 401 || response.status === 403 ? '; check the API key' : ''}`,
+      `${url} answered ${response.status}${hint}`,
       'DISCOVERY_FAILED',
     )
   }

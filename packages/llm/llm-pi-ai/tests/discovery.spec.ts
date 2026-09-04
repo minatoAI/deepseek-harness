@@ -323,11 +323,12 @@ describe('draft-provider model discovery', () => {
   it('points at the credential for a rejected one, and only then', async () => {
     const ctx = await harness()
 
-    for (const status of [401, 403]) {
-      const refused = await listingServer({ status, body: '{"error":"nope"}' })
-      await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: refused.url, apiKey: 'wrong' }))
-        .rejects.toThrow(new RegExp(`answered ${status}; check the API key`))
-    }
+    const unauthorized = await listingServer({ status: 401, body: '{"error":"nope"}' })
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: unauthorized.url, apiKey: 'wrong' }))
+      .rejects.toThrow(/answered 401; check the API key$/)
+    const forbidden = await listingServer({ status: 403, body: '{"error":"nope"}' })
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { baseURL: forbidden.url, apiKey: 'wrong' }))
+      .rejects.toThrow(/answered 403; check the API key or region availability$/)
 
     // A server fault is not a credential problem, so it must not send the user
     // off to re-check a key that is fine.

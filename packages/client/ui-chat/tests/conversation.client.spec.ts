@@ -43,6 +43,8 @@ describe('toAssistantBlock', () => {
 
   it('redacts auth failures and presents the remaining durable values', () => {
     expect(displayFailure({ code: 'AUTH', message: 'secret' })).toEqual({ code: 'AUTH', message: '' })
+    expect(displayFailure({ code: 'REGION_UNSUPPORTED', message: 'not available in region' }))
+      .toEqual({ code: 'REGION_UNSUPPORTED', message: 'not available in region' })
     expect(displayFailure({ code: 'TRANSPORT', message: 'offline' }))
       .toEqual({ code: 'TRANSPORT', message: 'offline' })
     expect(displayFailure({ code: 'UNKNOWN' })).toEqual({ code: 'UNKNOWN', message: '{"code":"UNKNOWN"}' })

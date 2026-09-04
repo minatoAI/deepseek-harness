@@ -7,6 +7,7 @@ import LlmRuntime, {
   HarnessError,
   isContextWindowExceededError,
   isQuotaExceededError,
+  isRegionUnsupportedError,
   LlmAdapter,
   LlmError,
   ProviderRequestId,
@@ -127,6 +128,19 @@ describe('LlmRuntime', () => {
     ]) expect(isQuotaExceededError(detail)).toBe(true)
     expect(isQuotaExceededError('HTTP 429: rate limit reached')).toBe(false)
     expect(isQuotaExceededError('quota resets in one minute')).toBe(false)
+  })
+
+  it('recognizes region restriction wording for 403 classification', () => {
+    for (const detail of [
+      'RegionError',
+      'OpenAI API error (403) type RegionError: This model is not available in your country',
+      'model not available in region',
+      'unavailable in your country',
+      'country not supported',
+      'region blocked',
+    ]) expect(isRegionUnsupportedError(detail)).toBe(true)
+    expect(isRegionUnsupportedError('invalid api key')).toBe(false)
+    expect(isRegionUnsupportedError('HTTP 403: forbidden')).toBe(false)
   })
 
   it('errorChain renders the full cause chain of a wrapped transport failure', () => {

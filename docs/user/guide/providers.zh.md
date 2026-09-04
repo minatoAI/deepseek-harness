@@ -126,6 +126,7 @@ llm-pi-ai:
 - **`MISSING_CREDENTIAL`**：通过模型页存储提供方密钥，或提供被引用的环境变量。
 - **`UNKNOWN_MODEL`**：选择已配置的模型，或向自定义提供方添加缺失的模型。
 - **获取可用模型返回 401**：检查密钥。模型发现会调用 OpenAI 兼容的 `GET /models` 端点；对于不提供该端点的服务，请手动输入模型。
+- **`REGION_UNSUPPORTED`（403）**：密钥有效，模型在当前地区不可用。请检查出口地区或 VPN，稍后重试，或切换模型或提供方。会话日志保留完整提供方诊断。
 - **密钥与地址都正确，网关却拒绝每一个请求**：它的请求形状与 OpenAI 不同。先在路由上设 `compat.supportsDeveloperRole: false` 与 `compat.maxTokensField: max_tokens`。
 - **只有推理模型失败**：pi-ai 把它们的系统提示词以 `developer` 角色发出，而网关拒绝该角色。设 `compat.supportsDeveloperRole: false`。
 - **某个 compat 开关因没有值而被拒绝**：冒号后什么都没写。给它一个值，或删掉该键以沿用已安装 catalog 的值。

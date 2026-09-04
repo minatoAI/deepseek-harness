@@ -383,6 +383,7 @@ describe('PiAiAdapter provider routing', () => {
 
   it.each([
     [401, 'AUTH'],
+    [403, 'AUTH'],
     [400, 'INVALID_REQUEST'],
     [429, 'RATE_LIMIT'],
     [500, 'SERVER'],
@@ -391,6 +392,17 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = await harness(server.url)
     const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(result.finish).toMatchObject({ kind: 'error', failure: { code } })
+    expect(server.paths).toEqual(['/chat/completions'])
+  })
+
+  it('maps a 403 RegionError body to REGION_UNSUPPORTED', async () => {
+    const server = await mockServer([{
+      status: 403,
+      body: JSON.stringify({ error: { type: 'RegionError', message: 'This model is not available in your country' } }),
+    }])
+    const ctx = await harness(server.url)
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'REGION_UNSUPPORTED' } })
     expect(server.paths).toEqual(['/chat/completions'])
   })
 

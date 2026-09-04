@@ -39,11 +39,13 @@ const CANCEL_EXPANDED_EXPECTED = join(SNAPSHOT_DIR, 'cancel-expanded.expected.md
 const LOADING_EXPECTED = join(SNAPSHOT_DIR, 'loading.expected.md')
 const RUNNING_DRAFT_EXPECTED = join(SNAPSHOT_DIR, 'running-draft.expected.md')
 const ERROR_EXPECTED = join(SNAPSHOT_DIR, 'error-auth.expected.md')
+const ERROR_REGION_EXPECTED = join(SNAPSHOT_DIR, 'error-region.expected.md')
 const RETRY_EXPECTED = join(SNAPSHOT_DIR, 'retry.expected.md')
 const RETRY_EXPANDED_EXPECTED = join(SNAPSHOT_DIR, 'retry-expanded.expected.md')
 const RETRY_EXHAUSTED_EXPECTED = join(SNAPSHOT_DIR, 'retry-exhausted.expected.md')
 const MODE = webSnapshotMode()
 const AUTH_PROVIDER_MESSAGE = 'Authentication Fails, Your api key: sk-preview-secret is invalid'
+const REGION_PROVIDER_MESSAGE = 'OpenAI API error (403) type RegionError: This model is not available in your country'
 
 // The recorded base: one text-only turn whose derived script the sidecars
 // patch. Kept deliberately tool-free so the derived script is exactly one
@@ -230,6 +232,33 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     expect(tripwire.warnings).toEqual([])
   }, 120_000)
 
+  it.skipIf(MODE === 'record')('surfaces a non-retryable REGION_UNSUPPORTED failure without retrying', async () => {
+    await launch(() => ({
+      patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: REGION_PROVIDER_MESSAGE, code: 'REGION_UNSUPPORTED' } }],
+    }))
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-error-region'))
+    const { settled } = await sendPrompt()
+    await settled
+    expect(turnEndReasons(sessionEvents).at(-1)).toBe('error')
+    // REGION_UNSUPPORTED is outside llm-retry's retryable set: no retry record.
+    expect(sessionEvents.filter(e => e.type === 'llm/retry').length).toBe(0)
+    await expect.poll(() => page.locator('[data-composer-input]').first().isEnabled(), { timeout: 10_000 }).toBe(true)
+    expect(await page.locator('[data-streaming="true"]').count()).toBe(0)
+    const errorStatus = page.getByRole('status').filter({ hasText: 'This turn failed' })
+    await errorStatus.waitFor({ timeout: 10_000 })
+    expect(await errorStatus.textContent()).toContain('Model unavailable in the current region')
+    expect(await errorStatus.textContent()).toContain('REGION_UNSUPPORTED')
+    const snapshot = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
+    await compareOrRefreshGolden(ERROR_REGION_EXPECTED, snapshot, MODE)
+    await page.getByRole('tab', { name: 'Trajectory' }).click()
+    const requestMarker = page.locator('tr[data-request-only="true"]').last()
+      .getByRole('button', { name: /Request #/ })
+    await requestMarker.click()
+    await page.getByText('Model unavailable in the current region', { exact: false }).first().waitFor({ timeout: 10_000 })
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  }, 120_000)
+
   it.skipIf(MODE === 'record')('keeps a terminal request marker inside the trajectory table', async () => {
     await launch(() => ({
       patches: [{ at: 0, entry: { kind: 'throw', chunks: [], message: AUTH_PROVIDER_MESSAGE, code: 'AUTH' } }],
@@ -327,6 +356,7 @@ describe('web e2e: live-turn interactions (cancel / error / retry)', () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [
       'session.jsonl', 'cancel.expected.md', 'cancel-expanded.expected.md',
       'loading.expected.md', 'running-draft.expected.md', 'error-auth.expected.md',
+      'error-region.expected.md',
       'retry.expected.md', 'retry-expanded.expected.md', 'retry-exhausted.expected.md',
     ])
   })

@@ -9,7 +9,7 @@
  */
 
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, LlmError, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
+import { CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, isRegionUnsupportedError, LlmError, QUOTA_EXCEEDED_CODE, REGION_UNSUPPORTED_CODE } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, StreamChunk, TokenUsage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { isContextOverflow } from '@earendil-works/pi-ai'
 import type { AssistantMessage, AssistantMessageEvent, Usage as PiUsage } from '@earendil-works/pi-ai'
@@ -52,6 +52,7 @@ export function classifyPiAiError(message: string, cause?: TransportErrorCause):
     if (/\b413\b|payload too large|request body too large|length limit exceeded/i.test(observed)) return 'INVALID_REQUEST'
     if (/\bUND_ERR_SOCKET\b|\bECONN[A-Z]*\b|\bETIMEDOUT\b|\bENOTFOUND\b|\bEAI_AGAIN\b|other side closed|terminated|premature close|fetch failed|\b(?:network|connection|socket|fetch)\b/i.test(observed)) return 'TRANSPORT'
   }
+  if (/\b403\b/.test(message) && isRegionUnsupportedError(message)) return REGION_UNSUPPORTED_CODE
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
   if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'

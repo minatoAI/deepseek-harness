@@ -1452,6 +1452,15 @@ describe('DeepSeekAdapter against a mock server', () => {
     expect(httpErrorCode(418)).toBe('HTTP_418')
   })
 
+  it('splits 403 region blocks from credential failures', () => {
+    expect(httpErrorCode(401)).toBe('AUTH')
+    expect(httpErrorCode(403, { message: 'forbidden' })).toBe('AUTH')
+    expect(httpErrorCode(403, { message: 'OpenAI API error (403) type RegionError: This model is not available in your country' }))
+      .toBe('REGION_UNSUPPORTED')
+    expect(httpErrorCode(403, { type: 'RegionError', message: 'not available in region' }))
+      .toBe('REGION_UNSUPPORTED')
+  })
+
   it('reports a transport failure with the endpoint in the message', async () => {
     // Port 1 is reserved/unbound, so the service normalizes the fetch failure.
     const ctx = await harness('http://127.0.0.1:1')
