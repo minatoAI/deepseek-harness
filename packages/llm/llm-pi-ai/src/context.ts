@@ -17,6 +17,7 @@ import type {
 import type { Context as PiContext, ImageContent, Message as PiMessage, TextContent, Tool as PiTool } from '@earendil-works/pi-ai'
 import { toPiAssistant } from './replay.ts'
 import { DEFAULT_REQUEST_IMAGE_MAX_BYTES, DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET } from './config.ts'
+import { formatImageMegabytes } from './image-degrade.ts'
 
 /** Join the text blocks of a harness message. */
 function flattenText(message: Message): string {
@@ -196,6 +197,36 @@ export interface PiImageRequestContext {
   maxRequestImageBytes?: number
   /** Route pixel and raw encoded-byte budgets. */
   requestImagePolicy?: ImageRequestPolicy
+  /** Base64 payload that warns once per request without blocking it; omission disables the warning. */
+  imagePayloadWarnBytes?: number
+}
+
+/**
+ * Sum base64-encoded request-image bytes for prepared versions.
+ * @param versions - exact request-image versions resolved for this request.
+ * @returns accumulated base64 length including padding.
+ */
+export function requestImagePayloadBytes(versions: ReadonlyMap<unknown, { bytes: number }>): number {
+  let total = 0
+  for (const version of versions.values()) total += Math.ceil(version.bytes / 3) * 4
+  return total
+}
+
+/**
+ * Sum base64 image data carried by an assembled pi-ai context.
+ * @param context - assembled request context whose image blocks carry base64 data.
+ * @returns accumulated base64 data length.
+ */
+export function piContextImageBytes(context: PiContext): number {
+  let total = 0
+  for (const message of context.messages) {
+    const content = message.content as unknown
+    if (typeof content === 'string') continue
+    for (const block of content as Array<{ type: string; data?: unknown }>) {
+      if (block.type === 'image') total += (block.data as string).length
+    }
+  }
+  return total
 }
 
 /**
@@ -256,6 +287,11 @@ async function toPiContextWithImages(
     placeholder: ref => offloadedImageText(ref, resolveImageAccess(ref)),
   })
   const requestImages = await prepareRequestImages(requestMessages, attachments, requestImagePolicy, options.signal)
+  const payloadBytes = requestImagePayloadBytes(requestImages)
+  const warnBytes = images.imagePayloadWarnBytes
+  if (warnBytes !== undefined && payloadBytes >= warnBytes) {
+    onReplayDegrade?.(`request-image-bytes=${formatImageMegabytes(payloadBytes)}>warn=${formatImageMegabytes(warnBytes)}; expect gateway RST; consider fewer images`)
+  }
   const exactMessages = offloadRequestImagesWithPolicy(requestMessages, {
     representation: 'base64',
     ...maxRequestImageBytes === undefined ? {} : { maxBytes: maxRequestImageBytes },

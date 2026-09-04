@@ -854,6 +854,24 @@ describe('mapStopReason / mapUsage', () => {
       .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
   })
 
+  it('prefers a captured transport cause over flattened text', () => {
+    const failed = (errorMessage: string): Parameters<typeof mapStopReason>[0] => (
+      assistant({ stopReason: 'error', errorMessage })
+    )
+    expect(mapStopReason(failed('mystery'), undefined, { code: 'UND_ERR_SOCKET', message: 'other side closed' }))
+      .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
+    expect(mapStopReason(failed('mystery'), undefined, { message: 'other side closed' }))
+      .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
+    expect(mapStopReason(failed('mystery'), undefined, { code: 'ECONNRESET' }))
+      .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
+    expect(mapStopReason(failed('all good'), undefined, { message: 'payload too large' }))
+      .toMatchObject({ kind: 'error', failure: { code: 'INVALID_REQUEST' } })
+    expect(mapStopReason(failed('mystery'), undefined, {}))
+      .toMatchObject({ kind: 'error', failure: { code: 'PI_AI_ERROR' } })
+    expect(mapStopReason(failed('terminated')))
+      .toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
+  })
+
   it('uses pi-ai provider-specific overflow classification without losing rate-limit exclusions', () => {
     expect(mapStopReason(assistant({
       stopReason: 'error',

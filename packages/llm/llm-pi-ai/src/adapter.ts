@@ -59,8 +59,10 @@ import type {
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
-import { toPiContext } from './context.ts'
-import { toStreamChunks } from './stream.ts'
+import { piContextImageBytes, toPiContext } from './context.ts'
+import { formatImageMegabytes, nextDegradedImageBudget, shouldDegradeImages } from './image-degrade.ts'
+import { classifyPiAiError, toStreamChunks } from './stream.ts'
+import { takeTransportCause } from './transport-cause.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
 interface PiAiSnapshot {
@@ -366,47 +368,100 @@ export class PiAiAdapter extends LlmAdapter {
       const onReplayDegrade = (reason: string): void => {
         this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })
       }
-      const context = attachments === undefined
-        ? toPiContext(options, undefined, onReplayDegrade)
-        : await toPiContext({ ...options, signal: watchdog.signal }, {
-          attachments,
-          resolveImageAccess: ref => this.config.resolveImageAccess?.(attachments, ref),
-          maxRequestImageBytes: profile.maxRequestImageBytes,
-          requestImagePolicy: {
-            maxPixels: profile.requestImagePixelBudget,
-            maxBytes: profile.requestImageMaxBytes,
-          },
-        }, onReplayDegrade)
-      const events = snapshot.models.streamSimple(model, context, {
-        ...profileOptions(profile, reasoning, apiKey),
-        ...options.temperature === undefined ? {} : { temperature: options.temperature },
-        ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
-        ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
-        signal: watchdog.signal,
-        // Profile headers are deployment-owned; attribution names are
-        // Harness-owned and therefore win collisions.
-        headers: requestHeaders(profile.headers),
-      })
-      const iterator = toStreamChunks(events, model.contextWindow, options.signal)[Symbol.asyncIterator]()
-      let exhausted = false
-      try {
-        while (true) {
-          const result = await watchdog.next(iterator)
-          const timeout = timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT')
-          if (timeout !== undefined) throw timeout
-          if (result.done) {
+      let maxRequestImageBytes = profile.maxRequestImageBytes
+      let degradedRounds = 0
+      while (true) {
+        const attemptStart = Date.now()
+        // Degradation only shrinks the payload, so the first attempt is the
+        // only one that can newly exceed the warn bound: later attempts omit it.
+        const warnOnce = degradedRounds === 0 ? { imagePayloadWarnBytes: profile.imagePayloadWarnBytes } : {}
+        const context = attachments === undefined
+          ? toPiContext(options, undefined, onReplayDegrade)
+          : await toPiContext({ ...options, signal: watchdog.signal }, {
+            attachments,
+            resolveImageAccess: ref => this.config.resolveImageAccess?.(attachments, ref),
+            maxRequestImageBytes,
+            requestImagePolicy: {
+              maxPixels: profile.requestImagePixelBudget,
+              maxBytes: profile.requestImageMaxBytes,
+            },
+            ...warnOnce,
+          }, onReplayDegrade)
+        const imageBytes = attachments === undefined ? 0 : piContextImageBytes(context)
+        const events = snapshot.models.streamSimple(model, context, {
+          ...profileOptions(profile, reasoning, apiKey),
+          ...options.temperature === undefined ? {} : { temperature: options.temperature },
+          ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+          ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
+          signal: watchdog.signal,
+          // Profile headers are deployment-owned; attribution names are
+          // Harness-owned and therefore win collisions.
+          headers: requestHeaders(profile.headers),
+        })
+        const iterator = toStreamChunks(events, model.contextWindow, options.signal)[Symbol.asyncIterator]()
+        let exhausted = false
+        try {
+          const buffered: StreamChunk[] = []
+          let sawContent = false
+          while (true) {
+            const result = await watchdog.next(iterator)
+            const timeout = timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT')
+            if (timeout !== undefined) throw timeout
+            /* v8 ignore next -- toStreamChunks yields a terminal chunk or throws; a bare completion cannot reach here. */
+            if (result.done === true) throw new LlmError('pi-ai event stream ended without done/error', 'STREAM_CLOSED')
+            const chunk = result.value
+            if (chunk.type === 'usage') {
+              buffered.push(chunk)
+              continue
+            }
+            // Usage buffered ahead of the terminal chunk replays in wire order.
+            for (const pending of buffered) yield pending
+            buffered.length = 0
+            if (chunk.type !== 'finish') {
+              sawContent = true
+              yield chunk
+              continue
+            }
+            if (chunk.reason.kind !== 'error'
+              || timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT') !== undefined
+              || options.signal?.aborted === true
+              || sawContent) {
+              yield chunk
+              exhausted = true
+              return
+            }
+            const failure = chunk.reason.failure
+            const effectiveCode = classifyPiAiError(failure.message, takeTransportCause())
+            const elapsedMs = Date.now() - attemptStart
+            if (!shouldDegradeImages({
+              code: effectiveCode,
+              message: failure.message,
+              imageBytes,
+              degradeMinBytes: profile.imagePayloadDegradeMinBytes,
+              elapsedMs,
+              fastFailMs: profile.imageDegradeFastFailMs,
+              degradedRounds,
+              maxRounds: profile.maxImageDegradeRounds,
+            })) {
+              yield chunk
+              exhausted = true
+              return
+            }
+            const nextBound = nextDegradedImageBudget(imageBytes)
+            degradedRounds += 1
+            onReplayDegrade(`degraded image payload after fast reset round ${degradedRounds}/${profile.maxImageDegradeRounds} (${formatImageMegabytes(imageBytes)}→budget ${formatImageMegabytes(nextBound)})`)
+            maxRequestImageBytes = nextBound
             exhausted = true
-            return
+            break
           }
-          yield result.value
-        }
-      } finally {
-        if (!exhausted) {
-          consumer.abort('pi-ai stream consumer stopped')
-          try {
-            await iterator.return(undefined)
-          } catch (_abortedSdkTeardown) {
-            // The stable signal already owns SDK termination; return-time abort cannot add an outcome.
+        } finally {
+          if (!exhausted) {
+            consumer.abort('pi-ai stream consumer stopped')
+            try {
+              await iterator.return(undefined)
+            } catch (_abortedSdkTeardown) {
+              // The stable signal already owns SDK termination; return-time abort cannot add an outcome.
+            }
           }
         }
       }

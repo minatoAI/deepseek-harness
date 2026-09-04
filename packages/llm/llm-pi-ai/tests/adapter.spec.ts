@@ -9,12 +9,19 @@ import type {
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import LlmRuntime, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent, type FinishReason } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
-import { DEFAULT_MAX_REQUEST_IMAGE_BYTES, resolveProfiles } from '../src/config.ts'
+import {
+  DEFAULT_IMAGE_DEGRADE_FAST_FAIL_MS,
+  DEFAULT_IMAGE_PAYLOAD_DEGRADE_MIN_BYTES,
+  DEFAULT_IMAGE_PAYLOAD_WARN_BYTES,
+  DEFAULT_MAX_IMAGE_DEGRADE_ROUNDS,
+  DEFAULT_MAX_REQUEST_IMAGE_BYTES,
+  resolveProfiles,
+} from '../src/config.ts'
 import { memoryAuth } from './auth-double.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
@@ -893,6 +900,27 @@ describe('provider profile lifecycle', () => {
       .toBe(1024)
   })
 
+  it('resolves image payload warn and degrade knobs with gateway-aware defaults', () => {
+    const resolved = resolveProfiles({ openai: {} }).get('openai')
+    expect(resolved?.imagePayloadWarnBytes).toBe(DEFAULT_IMAGE_PAYLOAD_WARN_BYTES)
+    expect(resolved?.imagePayloadDegradeMinBytes).toBe(DEFAULT_IMAGE_PAYLOAD_DEGRADE_MIN_BYTES)
+    expect(resolved?.imageDegradeFastFailMs).toBe(DEFAULT_IMAGE_DEGRADE_FAST_FAIL_MS)
+    expect(resolved?.maxImageDegradeRounds).toBe(DEFAULT_MAX_IMAGE_DEGRADE_ROUNDS)
+    expect(resolveProfiles({
+      openai: {
+        imagePayloadWarnBytes: 1024,
+        imagePayloadDegradeMinBytes: 512,
+        imageDegradeFastFailMs: 500,
+        maxImageDegradeRounds: 0,
+      },
+    }).get('openai')).toMatchObject({
+      imagePayloadWarnBytes: 1024,
+      imagePayloadDegradeMinBytes: 512,
+      imageDegradeFastFailMs: 500,
+      maxImageDegradeRounds: 0,
+    })
+  })
+
   it.each([
     ['bad header name', 'value'],
     ['x-company', 'line\nbreak'],
@@ -924,6 +952,12 @@ describe('provider profile lifecycle', () => {
       { maxRequestImageBytes: 0 },
       { maxRequestImageBytes: 1.5 },
       { maxRequestImageBytes: Number.NaN },
+      { imagePayloadWarnBytes: 0 },
+      { imagePayloadDegradeMinBytes: -2 },
+      { imageDegradeFastFailMs: 0 },
+      { imageDegradeFastFailMs: MAX_TIMER_DELAY_MS + 1 },
+      { maxImageDegradeRounds: -1 },
+      { maxImageDegradeRounds: 0.5 },
     ]
     for (const entry of invalid) {
       const ctx = new Context()
@@ -1095,5 +1129,154 @@ describe('abort wiring', () => {
     }
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(server.requests).toHaveLength(1)
+  })
+})
+
+describe('image payload fast-reset degradation', () => {
+  const imageRef = (tag: string): ImageAttachmentRef => ({
+    attachmentId: AttachmentId(`sha256:${tag.repeat(64)}`),
+    mediaType: 'image/png',
+    bytes: 300,
+    width: 8,
+    height: 8,
+  })
+
+  /** Six 300-byte versions cost 400 base64 characters each: 2400 total. */
+  const sixImages = [createUserMessage({
+    content: ['c', 'd', 'e', 'f', 'g', 'h'].map(tag => ({ type: 'image', attachment: imageRef(tag) })),
+    source: { kind: 'plugin', plugin: 'test' },
+  })]
+
+  function visionStore(): AttachmentStore {
+    return {
+      readImageRequest: vi.fn((value: ImageAttachmentRef): Promise<RequestImageAttachment> => Promise.resolve({
+        variantId: ImageVariantId(`sha256:${'b'.repeat(64)}`),
+        attachment: value,
+        data: new Uint8Array(300),
+        mediaType: value.mediaType,
+        bytes: 300,
+        width: value.width,
+        height: value.height,
+        depth: 'uchar',
+        space: 'srgb',
+        hasAlpha: true,
+      })),
+      imageHostPath: () => undefined,
+    } as unknown as AttachmentStore
+  }
+
+  function visionAdapter(
+    server: { url: string },
+    overrides: Record<string, unknown> = {},
+    onReplayDegrade?: (detail: { provider: string; model: string; reason: string }) => void,
+  ): PiAiAdapter {
+    return new PiAiAdapter({
+      profiles: () => resolveProfiles({
+        'acme-vision': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          models: [{ id: 'acme-vision', input: ['text', 'image'] }],
+          maxRequestImageBytes: 100_000,
+          imagePayloadWarnBytes: 1000,
+          imagePayloadDegradeMinBytes: 1000,
+          ...overrides,
+        },
+      }),
+      resolveApiKey: () => Promise.resolve('test-key'),
+      auth: memoryAuth(),
+      resolveAttachments: () => visionStore(),
+      resolveImageAccess: () => undefined,
+      ...onReplayDegrade === undefined ? {} : { onReplayDegrade },
+    })
+  }
+
+  async function streamFinish(adapter: PiAiAdapter): Promise<FinishReason> {
+    let finish: FinishReason = { kind: 'stop' }
+    for await (const chunk of adapter.stream({ provider: 'acme-vision', model: 'acme-vision', messages: sixImages })) {
+      if (chunk.type === 'finish') finish = chunk.reason
+    }
+    return finish
+  }
+
+  /** Count inline image payloads in one completions request body. */
+  function imageParts(body: unknown): number {
+    return (JSON.stringify(body).match(/data:image\/png;base64/g) ?? []).length
+  }
+
+  it('degrades a fast transport reset into a smaller retry that succeeds', async () => {
+    const server = await mockServer([{ destroySocket: true }, { events: textEvents }])
+    const reasons: string[] = []
+    const finish = await streamFinish(visionAdapter(server, {}, ({ reason }) => { reasons.push(reason) }))
+    expect(finish).toEqual({ kind: 'stop' })
+    // The reset request never completes, so only the degraded retry lands.
+    expect(server.requests).toHaveLength(1)
+    expect(imageParts(server.requests[0])).toBe(3)
+    expect(JSON.stringify(server.requests[0])).toContain('image omitted to fit request image limits')
+    expect(reasons).toHaveLength(2)
+    expect(reasons[0]).toContain('request-image-bytes=')
+    expect(reasons[1]).toContain('degraded image payload after fast reset round 1/2')
+  })
+
+  it('degrades an explicit 413 rejection regardless of timing', async () => {
+    const server = await mockServer([
+      { status: 413, body: JSON.stringify({ error: { message: '413 Payload Too Large' } }) },
+      { events: textEvents },
+    ])
+    const reasons: string[] = []
+    const finish = await streamFinish(visionAdapter(server, {}, ({ reason }) => { reasons.push(reason) }))
+    expect(finish).toEqual({ kind: 'stop' })
+    expect(server.requests).toHaveLength(2)
+    expect(imageParts(server.requests[0])).toBe(6)
+    expect(imageParts(server.requests[1])).toBe(3)
+    expect(JSON.stringify(server.requests[1])).toContain('image omitted to fit request image limits')
+    expect(reasons.filter(reason => reason.includes('request-image-bytes='))).toHaveLength(1)
+    expect(reasons.filter(reason => reason.includes('degraded image payload'))).toHaveLength(1)
+  })
+
+  it('keeps small payloads on the legacy retry path', async () => {
+    const server = await mockServer([
+      { status: 413, body: JSON.stringify({ error: { message: '413 Payload Too Large' } }) },
+    ])
+    const reasons: string[] = []
+    const finish = await streamFinish(visionAdapter(server, {
+      imagePayloadWarnBytes: 4096,
+      imagePayloadDegradeMinBytes: 4096,
+    }, ({ reason }) => {
+      reasons.push(reason)
+    }))
+    expect(finish).toMatchObject({ kind: 'error', failure: { code: 'INVALID_REQUEST' } })
+    expect(server.requests).toHaveLength(1)
+    expect(reasons).toEqual([])
+  })
+
+  it('restores legacy behavior with zero degrade rounds', async () => {
+    const server = await mockServer([
+      { status: 413, body: JSON.stringify({ error: { message: '413 Payload Too Large' } }) },
+    ])
+    const reasons: string[] = []
+    const finish = await streamFinish(visionAdapter(server, { maxImageDegradeRounds: 0 }, ({ reason }) => {
+      reasons.push(reason)
+    }))
+    expect(finish).toMatchObject({ kind: 'error', failure: { code: 'INVALID_REQUEST' } })
+    expect(server.requests).toHaveLength(1)
+    expect(reasons).toHaveLength(1)
+    expect(reasons[0]).toContain('request-image-bytes=')
+  })
+
+  it('does not degrade a failure that arrives after content', async () => {
+    const server = await mockServer([{ events: textEvents.slice(0, 2) }])
+    const reasons: string[] = []
+    const seen: string[] = []
+    const adapter = visionAdapter(server, {}, ({ reason }) => { reasons.push(reason) })
+    let finish: FinishReason = { kind: 'stop' }
+    for await (const chunk of adapter.stream({ provider: 'acme-vision', model: 'acme-vision', messages: sixImages })) {
+      seen.push(chunk.type)
+      if (chunk.type === 'finish') finish = chunk.reason
+    }
+    expect(finish).toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
+    expect(seen).toContain('text-delta')
+    expect(server.requests).toHaveLength(1)
+    expect(reasons.some(reason => reason.includes('degraded image payload'))).toBe(false)
   })
 })

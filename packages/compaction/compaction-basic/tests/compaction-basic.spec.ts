@@ -1255,12 +1255,53 @@ describe('default one-shot summarizer', () => {
     expect(adapter.lastOptions?.system).toBe('REPLAYED SYSTEM')
     expect(adapter.lastOptions?.tools).toEqual(tools)
     const messages = adapter.lastOptions?.messages ?? []
-    expect(messages[0]).toEqual(prefix)
+    // The summarizer never resends base64 bytes: images become stable
+    // placeholders so a poisoned history cannot poison its own rescue.
+    expect(messages[0]?.content).toEqual([
+      { type: 'text', text: 'earlier turn' },
+      { type: 'text', text: '[image omitted because this model accepts text only; attachment sha256:aaaaaaaa]' },
+    ])
     const last = messages.at(-1)?.content[0]
     const lastText = last?.type === 'text' ? last.text : ''
     expect(lastText).toContain('Write concise English engineering prose.')
     expect(lastText).toContain('numeric values, function signatures, and syntax fragments.')
     expect(lastText).toContain('## Primary Request and Intent')
+  })
+
+  it('strips image bytes from a poisoned history before summarizing', async () => {
+    const { adapter, compact } = await summarizerHarness([{ type: 'text', text: 'summary' }])
+    const poisoned = createUserMessage({
+      content: [
+        { type: 'text', text: 'look' },
+        {
+          type: 'image',
+          attachment: {
+            attachmentId: AttachmentId(`sha256:${'b'.repeat(64)}`),
+            mediaType: 'image/png',
+            bytes: 1,
+            width: 1,
+            height: 1,
+          },
+        },
+        {
+          type: 'image',
+          attachment: {
+            attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+            mediaType: 'image/png',
+            bytes: 1,
+            width: 1,
+            height: 1,
+          },
+        },
+      ],
+      source: { kind: 'plugin', plugin: 'test' },
+    })
+    await compact.runSummarize({ messages: [poisoned] }, agent(conversation(1), MODEL))
+    const sent = adapter.lastOptions?.messages ?? []
+    for (const message of sent) {
+      for (const block of message.content) expect(block.type).not.toBe('image')
+    }
+    expect(JSON.stringify(sent)).toContain('image omitted because this model accepts text only')
   })
 
   it('applies the routed model policy without changing the replayed prefix', async () => {

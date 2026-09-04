@@ -8,7 +8,7 @@ import type {
 } from '@deepseek-ai/dsh-attachment'
 import { ToolCallId, createMessage, createUserMessage, offloadedImageText } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
-import { toPiContext } from '../src/context.ts'
+import { piContextImageBytes, requestImagePayloadBytes, toPiContext } from '../src/context.ts'
 import type { PiImageRequestContext } from '../src/context.ts'
 import { toPiAssistant } from '../src/replay.ts'
 
@@ -463,6 +463,45 @@ describe('pi-ai request context conversion', () => {
     expect(() => toPiAssistant(
       history('assistant', [{ type: 'image', attachment: ref }]),
     )).toThrow(/assistant image output/)
+  })
+
+  it('warns once when the prepared image payload passes the warn bound', async () => {
+    const sized: ImageAttachmentRef = { ...ref, bytes: 300 }
+    const readImageRequest = vi.fn((value: ImageAttachmentRef) => (
+      Promise.resolve(requestImage(value, new Uint8Array(300)))
+    ))
+    const store = projectionStore(readImageRequest)
+    const onReplayDegrade = vi.fn()
+    const context = await toPiContext(request([
+      user([{ type: 'text', text: 'plain note' }]),
+      user([{ type: 'image', attachment: sized }]),
+      user([{ type: 'image', attachment: sized }]),
+    ]), imageContext(store, { imagePayloadWarnBytes: 400 }), onReplayDegrade)
+    // Two 300-byte versions cost 400 base64 characters each: 800 total.
+    expect(piContextImageBytes(context)).toBe(800)
+    expect(onReplayDegrade).toHaveBeenCalledTimes(1)
+    expect(onReplayDegrade).toHaveBeenCalledWith(expect.stringContaining('request-image-bytes=0.0MB>warn=0.0MB'))
+  })
+
+  it('stays quiet below the warn bound or without one', async () => {
+    const sized: ImageAttachmentRef = { ...ref, bytes: 3 }
+    const store = projectionStore()
+    const quiet = vi.fn()
+    await toPiContext(request([
+      user([{ type: 'image', attachment: sized }]),
+    ]), imageContext(store, { imagePayloadWarnBytes: 4096 }), quiet)
+    await toPiContext(request([
+      user([{ type: 'image', attachment: sized }]),
+    ]), imageContext(store), quiet)
+    expect(quiet).not.toHaveBeenCalled()
+  })
+
+  it('sums base64 payload bytes across prepared versions', () => {
+    expect(requestImagePayloadBytes(new Map())).toBe(0)
+    expect(requestImagePayloadBytes(new Map([
+      ['a', { bytes: 3 }],
+      ['b', { bytes: 4 }],
+    ]))).toBe(4 + 8)
   })
 
 })
