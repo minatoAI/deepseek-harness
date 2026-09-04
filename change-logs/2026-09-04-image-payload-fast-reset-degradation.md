@@ -4,7 +4,7 @@
 - **分支**：`master`（基于 `a3126ac15a`）
 - **Commit**：
   - `25e20ace19` — fix(llm-pi-ai): degrade image payload after fast gateway reset
-  - `a341d46402` — fix(llm-pi-ai): avoid delete on required global flag in spec
+  - `5aeb9cec98` — fix(llm-pi-ai): avoid delete on required global flag in spec
 
 ## 摘要（Abstract）
 
