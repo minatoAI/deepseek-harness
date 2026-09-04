@@ -120,7 +120,7 @@ describe('transport cause logging', () => {
     })
     expect(causeLines(stderr.mock.calls)).toHaveLength(1)
     expect(takeTransportCause()).toEqual({ code: 'UND_ERR_SOCKET', message: 'other side closed' })
-    delete globalThis.__dshTransportCauseWrapped
+    globalThis.__dshTransportCauseWrapped = undefined
   })
 
   it('logs through a delegate that rejects non-Request input', async () => {
