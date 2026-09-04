@@ -4,6 +4,7 @@
 
 ## 记录列表（按完成时间倒序）
 
+- **2026-09-04** — [大图片请求体被网关快速重置时自动降级重试](2026-09-04-image-payload-fast-reset-degradation.md)：`llm-pi-ai` 在大载荷快速传输重置时逐轮减半图片预算重试，另补脱敏传输原因日志与压缩侧图片剥离。
 - **2026-08-19** — [`reasoningEfforts.default` 点名的档位加入模型提供的档位集合](2026-08-19-reasoning-efforts-default-offer.md)：`{ default: medium, high: high }` 现在直接提供 medium 与 high 两档并以 medium 为默认，不再要求默认档重复声明为档位键。
 - **2026-08-18** — [为工具参数错误补充完整归属路径](2026-08-18-tool-argument-diagnostic-paths.md)：：`defineTool()` 以工具名作为运行时校验根路径，使直接调用与 Code Mode 子分发明确报告 `run_code.description`、`pwsh.description` 等完整参数路径。
 - **2026-08-17** — [接受 `reasoningEfforts.default` 作为保留选择键](2026-08-17-reasoning-efforts-default.md)：`llm-pi-ai` 将 `default` 视为每模型默认档选择键而非未知档位，避免整节 settings 注册失败导致自定义提供方消失。
