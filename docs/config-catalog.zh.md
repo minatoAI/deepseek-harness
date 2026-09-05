@@ -1121,6 +1121,29 @@ export interface PiAiProviderProfile {
    * the smallest quality-ladder output is used when no quality fits.
    */
   requestImageMaxBytes?: number
+  /**
+   * Base64 image payload that warns once per request without blocking it.
+   * Gateways that reset large bodies deserve a value near their observed
+   * limit so the warning precedes the reset.
+   */
+  imagePayloadWarnBytes?: number
+  /**
+   * Base64 image payload below which a fast transport failure never degrades:
+   * small requests keep the legacy retry path instead of dropping images.
+   */
+  imagePayloadDegradeMinBytes?: number
+  /**
+   * Request window qualifying a transport failure as a gateway fast reset.
+   * A body the gateway rejects on sight fails in milliseconds, while ordinary
+   * network jitter fails later.
+   */
+  imageDegradeFastFailMs?: number
+  /**
+   * Payload-degrade retries per step; each retry at least halves the image
+   * payload by replacing the oldest images with placeholders. Zero disables
+   * degradation and restores the legacy retry behavior.
+   */
+  maxImageDegradeRounds?: number
   /** Provider-owned model-request retry policy; omission uses normal mode with five retries. */
   retryPolicy?: RetryPolicyConfig
 }
@@ -1293,7 +1316,7 @@ export type PiAiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFo
 
 依赖：`Api`（`@earendil-works/pi-ai`）· `CacheRetention`（`@earendil-works/pi-ai`）· `Model`（`@earendil-works/pi-ai`）· `ModelThinkingLevel`（`@earendil-works/pi-ai`）· `OpenAICompletionsCompat`（`@earendil-works/pi-ai`）· [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets`（`@earendil-works/pi-ai`）· `Transport`（`@earendil-works/pi-ai`)
 
-来源：[`packages/llm/llm-pi-ai/src/config.ts:222`](../packages/llm/llm-pi-ai/src/config.ts)
+来源：[`packages/llm/llm-pi-ai/src/config.ts:263`](../packages/llm/llm-pi-ai/src/config.ts)
 
 <a id="deepseek-aidsh-llm-replay"></a>
 
