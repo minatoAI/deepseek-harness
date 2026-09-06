@@ -203,14 +203,47 @@ function reasoningInfo(
   }
 }
 
-/** Merge deployment headers while removing case-insensitive attribution collisions. */
-function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
+/** Session-affinity header OpenCode Go requires for routing and optimization. */
+export const OPENCODE_SESSION_HEADER = 'x-opencode-session'
+
+/**
+ * Whether one route serves OpenCode managed inference and therefore carries
+ * the session-affinity header. Catalog routes match by key; hand-declared
+ * gateways pointing at the managed endpoint match by address, so a renamed
+ * route keeps affinity without copying the catalog.
+ * @param provider - harness route key.
+ * @param baseURL - configured endpoint override, when one exists.
+ * @returns true when requests on this route carry {@link OPENCODE_SESSION_HEADER}.
+ */
+export function needsOpencodeSession(provider: string, baseURL?: string): boolean {
+  if (provider === 'opencode' || provider === 'opencode-go') return true
+  return (baseURL ?? '').toLowerCase().includes('opencode.ai')
+}
+
+/**
+ * Merge deployment headers, automatic OpenCode session affinity, and Harness
+ * attribution. An explicit deployment header wins over the automatic value
+ * (compared case-insensitively); attribution still wins over both.
+ * @param headers - deployment-owned profile headers.
+ * @param sessionId - stable per-conversation id stamped by the loop, when one exists.
+ * @param route - route facts deciding whether affinity applies.
+ * @returns headers to hand to pi-ai for one request.
+ */
+function requestHeaders(
+  headers: Readonly<Record<string, string>> | undefined,
+  sessionId?: string,
+  route?: Pick<ResolvedPiAiProviderProfile, 'provider' | 'baseURL'>,
+): Record<string, string> {
   const attribution = attributionHeaders()
   const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
-  return {
+  const merged: Record<string, string> = {
     ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
-    ...attribution,
   }
+  if (sessionId !== undefined && route !== undefined && needsOpencodeSession(route.provider, route.baseURL)) {
+    const hasExplicit = Object.keys(headers ?? {}).some(name => name.toLowerCase() === OPENCODE_SESSION_HEADER)
+    if (!hasExplicit) merged[OPENCODE_SESSION_HEADER] = sessionId
+  }
+  return { ...merged, ...attribution }
 }
 
 /**
@@ -395,8 +428,14 @@ export class PiAiAdapter extends LlmAdapter {
           ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
           signal: watchdog.signal,
           // Profile headers are deployment-owned; attribution names are
-          // Harness-owned and therefore win collisions.
-          headers: requestHeaders(profile.headers),
+          // Harness-owned and therefore win collisions. The OpenCode session
+          // header is request-owned: the loop-stamped session id, unless the
+          // deployment named the same header explicitly.
+          headers: requestHeaders(
+            profile.headers,
+            options.sessionId === undefined ? undefined : String(options.sessionId),
+            profile,
+          ),
         })
         const iterator = toStreamChunks(events, model.contextWindow, options.signal)[Symbol.asyncIterator]()
         let exhausted = false
