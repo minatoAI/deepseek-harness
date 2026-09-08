@@ -437,7 +437,7 @@ export class PiAiAdapter extends LlmAdapter {
             profile,
           ),
         })
-        const iterator = toStreamChunks(events, model.contextWindow, options.signal)[Symbol.asyncIterator]()
+        const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
         let exhausted = false
         try {
           const buffered: StreamChunk[] = []
