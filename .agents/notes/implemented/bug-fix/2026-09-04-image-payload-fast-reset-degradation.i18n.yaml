@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-04-image-payload-fast-reset-degradation.md
-2026-09-04-image-payload-fast-reset-degradation.md: d08c1122006f1b2e2380b00f153d83f73cd5e6cb
-2026-09-04-image-payload-fast-reset-degradation.zh.md: 62c605faccb04c0af960c733323c2dde6eaff5b6
+2026-09-04-image-payload-fast-reset-degradation.md: 8d4f181b1f54e557d0bf7b262e5b3241473e3ea0
+2026-09-04-image-payload-fast-reset-degradation.zh.md: 90725e2c3bd3dff60cd7613781ab8ef72d473051

@@ -6,7 +6,7 @@ English | [中文](2026-09-04-image-payload-fast-reset-degradation.zh.md)
 
 ## Problem
 
-A request carrying six ~1 MiB images (~5.3 MiB on the wire) to the opencode-go gateway is reset in ~33 ms with `UND_ERR_SOCKET / other side closed`, and five identical retries fail the same way: retrying the exact bytes that the gateway refused to receive cannot succeed. Two gaps in the harness made this unrecoverable. First, pi-ai flattens the fetch rejection to a bare message before the adapter sees it, so the socket cause never reaches error classification ([transport truncation note](2026-07-22-pi-ai-transport-truncation-classification.md)). Second, the adapter had exactly one image policy — the `maxRequestImageBytes` bound with oldest-first offload — and no behavior between "send everything" and "terminal failure". A separate re-send risk rode along: the compaction summarizer replayed history verbatim, so a poisoned image-heavy history re-sent its own base64 bytes on the rescue request.
+A request carrying six ~1 MiB images (~5.3 MiB on the wire) to the opencode-go gateway is reset in ~33 ms with `UND_ERR_SOCKET / other side closed`, and five identical retries fail the same way: retrying the exact bytes that the gateway refused to receive cannot succeed. Two gaps in the harness made this unrecoverable. First, pi-ai flattens the fetch rejection to a bare message before the adapter sees it, so the socket cause never reaches error classification ([transport truncation note](../../archived/bug-fix/2026-07-22-pi-ai-transport-truncation-classification.md)). Second, the adapter had exactly one image policy — the `maxRequestImageBytes` bound with oldest-first offload — and no behavior between "send everything" and "terminal failure". A separate re-send risk rode along: the compaction summarizer replayed history verbatim, so a poisoned image-heavy history re-sent its own base64 bytes on the rescue request.
 
 ## Decision
 
@@ -43,4 +43,4 @@ Large-image requests that a gateway resets on receipt now shrink and retry in-lo
 
 ## Related
 
-- [Classify pi-ai transport truncations from flattened message text](2026-07-22-pi-ai-transport-truncation-classification.md) — partially superseded on cause capture (now observed at the harness fetch boundary); its text-matching fallback stays active and this note does not archive it.
+- [Classify pi-ai transport truncations from flattened message text](../../archived/bug-fix/2026-07-22-pi-ai-transport-truncation-classification.md) — partially superseded on cause capture (now observed at the harness fetch boundary); its text-matching fallback stays active and this note does not archive it.

@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-携带六张约 1 MiB 图片（线上约 5.3 MiB）的请求发往 opencode-go 网关时，约 33 ms 即被重置（`UND_ERR_SOCKET / other side closed`），五次原样重试全部以同样方式失败：网关拒绝接收的字节，原样重试不可能成功。Harness 里两个缺口让它无法恢复。第一，pi-ai 在适配器看到失败之前就把 fetch 拒绝压平成裸消息，socket cause 到不了错误分类（见[传输截断分类文](2026-07-22-pi-ai-transport-truncation-classification.zh.md)）。第二，适配器的图片策略只有一个——`maxRequestImageBytes` 上限加最旧优先卸载——在"全量发送"和"终止失败"之间没有任何行为。还有一个伴随的重发风险：压缩摘要器逐字回放历史，被污染的图片历史会在救援请求里重发自己的 base64 字节。
+携带六张约 1 MiB 图片（线上约 5.3 MiB）的请求发往 opencode-go 网关时，约 33 ms 即被重置（`UND_ERR_SOCKET / other side closed`），五次原样重试全部以同样方式失败：网关拒绝接收的字节，原样重试不可能成功。Harness 里两个缺口让它无法恢复。第一，pi-ai 在适配器看到失败之前就把 fetch 拒绝压平成裸消息，socket cause 到不了错误分类（见[传输截断分类文](../../archived/bug-fix/2026-07-22-pi-ai-transport-truncation-classification.md)）。第二，适配器的图片策略只有一个——`maxRequestImageBytes` 上限加最旧优先卸载——在"全量发送"和"终止失败"之间没有任何行为。还有一个伴随的重发风险：压缩摘要器逐字回放历史，被污染的图片历史会在救援请求里重发自己的 base64 字节。
 
 ## 决策
 
@@ -43,4 +43,4 @@ socket cause 在 harness 自己的 `fetch` 边界捕获（`src/transport-cause.t
 
 ## 相关
 
-- [从压平消息文本分类 pi-ai 传输截断](2026-07-22-pi-ai-transport-truncation-classification.zh.md)——在 cause 捕获上被部分取代（现于 harness fetch 边界观察）；其文本匹配兜底继续有效，本文不归档它。
+- [从压平消息文本分类 pi-ai 传输截断](../../archived/bug-fix/2026-07-22-pi-ai-transport-truncation-classification.md)——在 cause 捕获上被部分取代（现于 harness fetch 边界观察）；其文本匹配兜底继续有效，本文不归档它。
