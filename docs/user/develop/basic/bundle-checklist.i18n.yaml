@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/user/develop/basic/bundle-checklist.md
-bundle-checklist.md: 2888a85a871fb4325e21bd34d4288df0fc2ef1b6
-bundle-checklist.zh.md: 57a0347caadbd091115a775a226d0bd3301b2522
+bundle-checklist.md: ef29460748e5bdc2efb0ee659d755345efc383b3
+bundle-checklist.zh.md: b60dc6d9a6e5cd97770aa761007456776f253d6e

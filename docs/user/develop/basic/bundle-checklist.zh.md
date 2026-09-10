@@ -43,7 +43,7 @@ ctx.tools.register({
 ## 客户端配置 UI 与凭据
 
 - 插件配置卡的标准 web 设置位是 `settings.plugin.item` 插槽（设置 → 插件 → 配置），由 web settings 包声明，无 owner props。
-- 密钥走[凭据 seam](../../../../packages/credentials/credentials/README.zh.md)：每次操作时 resolve，通过 `credentials.set`/`credentials.unset` 写入/删除，监听 `credentials/updated`，绝不把已存值回传页面——卡片只展示配置状态，不展示密钥本身。
+- 密钥走[凭据 seam](../../../../packages/credentials/credentials/README.zh.md)：每次操作时 resolve，通过 `credentials.set`/`credentials.unset` 写入/删除，监听 `credentials/reference-updated`，绝不把已存值回传页面——卡片只展示配置状态，不展示密钥本身。
 - 凭据引用是稳定名字；用 describe 描述它，让 UI 能给出合理标签。
 
 ## 客户端→主机通道

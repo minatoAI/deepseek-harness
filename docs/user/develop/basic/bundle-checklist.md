@@ -43,7 +43,7 @@ ctx.tools.register({
 ## Client configuration UI and credentials
 
 - The standard web-settings surface for a plugin configuration card is the `settings.plugin.item` slot (Settings → Plugins → Configure), declared by the web settings package with no owner props.
-- Store secrets through the [credentials seam](../../../../packages/credentials/credentials/README.md): resolve per operation, set/unset through `credentials.set`/`credentials.unset`, listen for `credentials/updated`, and never send a stored value back to the page — the card shows configured state, not the secret.
+- Store secrets through the [credentials seam](../../../../packages/credentials/credentials/README.md): resolve per operation, set/unset through `credentials.set`/`credentials.unset`, listen for `credentials/reference-updated`, and never send a stored value back to the page — the card shows configured state, not the secret.
 - Credential references are stable names; describe them so the UI can offer a sensible label.
 
 ## Client-to-host channels
