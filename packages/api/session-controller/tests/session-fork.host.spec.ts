@@ -255,6 +255,43 @@ describe('sessions.fork', () => {
     await ctx.fiber.dispose()
   })
 
+  it('excludes the next-turn inbox insert when forking a middle turn', async () => {
+    const ctx = await composed()
+    const source = ctx.sessions.create(sid('session-fork-inbox'), { meta: { cwd: '/proj' } })
+    for (let turn = 1; turn <= 3; turn++) {
+      source.append('agent/inbox/spliced', {
+        target: 'next-turn',
+        start: 0,
+        inserted: [createUserMessage({
+          content: [{ type: 'text', text: `prompt ${String(turn)}` }],
+          source: { kind: 'user' },
+        })],
+      })
+      source.append('turn/start', { turn })
+      source.append('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] })
+      source.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: `prompt ${String(turn)}` }],
+        source: { kind: 'user' },
+      }), { surfaceOp: 'append' })
+      source.append('turn/end', { turn, reason: { kind: 'completed' } })
+    }
+    ctx.agents.register({ id: source.id, session: source, status: 'idle', ctx } as Agent)
+    const boundary = source.snapshotEvents().find(event => event.type === 'turn/end' && event.data.turn === 2)
+    if (boundary === undefined) throw new Error('middle turn has no turn/end')
+    const response = await remote(ctx).fork(request({ sessionId: source.id, atSeq: boundary.seq }))
+    expect(response.ok ? null : response.error).toBeNull()
+    if (!response.ok) return
+    const child = ctx.sessions.get(response.value.sessionId)
+    const childEvents = child?.snapshotEvents() ?? []
+    expect(JSON.stringify(childEvents)).not.toContain('prompt 3')
+    expect(childEvents.map(event => event.type)).toEqual([
+      'agent/inbox/spliced', 'turn/start', 'agent/inbox/spliced', 'user/message', 'turn/end',
+      'agent/inbox/spliced', 'turn/start', 'agent/inbox/spliced', 'user/message', 'turn/end',
+      'session/end-seed',
+    ])
+    await ctx.fiber.dispose()
+  })
+
   it('rejects an in-log anchor whose turn is still open', async () => {
     const ctx = await composed()
     const source = liveAgent(ctx, 'session-open', 1, 'open')

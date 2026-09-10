@@ -241,7 +241,14 @@ export class SessionCommandController {
       )
     }
     let cut = SessionLogOffset(boundary.seq + 1)
-    while (cut < source.events.length && source.events[cut]?.type !== 'turn/start') {
+    // Trailing metadata after turn/end belongs to the forked prefix, but the
+    // next turn's inbox insert lives in the same gap and belongs to that turn:
+    // including it would resurrect its input as queued work in the child.
+    while (
+      cut < source.events.length
+      && source.events[cut]?.type !== 'turn/start'
+      && source.events[cut]?.type !== 'agent/inbox/spliced'
+    ) {
       cut = SessionLogOffset(cut + 1)
     }
     let workspace: Workspace | undefined
