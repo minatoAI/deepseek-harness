@@ -999,6 +999,7 @@ export function resolveRouteModels(
   assertOfferedCompatFields(provider, 'route', request.compat)
   const seen = new Set<string>()
   const configuredMaxTokens = new Map<string, number>()
+  const configuredDefaultEfforts = new Map<string, ModelThinkingLevel>()
   const resolveEntry = (entry: PiAiModelProfile): Model<Api> => {
     assertOfferedCompatFields(provider, `model "${entry.id}"`, entry.compat)
     if (entry.id.length === 0) invalid(provider, 'has a model with an empty id')
@@ -1075,5 +1076,5 @@ export function resolveRouteModels(
     invalid(provider, `sets compat "${field}", but no model on the route speaks a protocol that takes it;`
       + ` it exists on ${takers.join(', ')}`)
   }
-  return { models: serviceableModels, configuredMaxTokens, modelErrors }
+  return { models: serviceableModels, configuredMaxTokens, configuredDefaultEfforts, modelErrors }
 }

@@ -578,6 +578,7 @@ export function resolveProfiles(
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog?.configuredMaxTokens ?? new Map(),
+      configuredDefaultEfforts: catalog?.configuredDefaultEfforts ?? new Map(),
       modelErrors: catalog?.modelErrors ?? new Map(),
       ...piProvider === undefined ? {} : { piProvider },
       ...catalogError === undefined ? {} : { catalogError },
