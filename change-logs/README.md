@@ -1,5 +1,7 @@
 # 改动记录（Change Logs）
 
+English | [中文](README.zh.md)
+
 本目录记录本仓库每次改动的背景与过程。规范见 [AGENTS.md](AGENTS.md)。
 
 ## 记录列表（按完成时间倒序）

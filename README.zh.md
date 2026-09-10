@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**已进行 6 个改动，具体信息见 [change-logs/](change-logs/README.md)。**
+**已进行 6 个改动，具体信息见 [change-logs/](change-logs/README.zh.md)。**
 
 DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness（智能体框架）。
 
@@ -78,6 +78,18 @@ pnpm dsh web
 请先阅读[开发指南](docs/development.zh.md)与[架构文档](docs/architecture.zh.md)。
 
 面向 agent：请遵循 [AGENTS.md](AGENTS.md)。
+
+## 引用
+
+```bibtex
+@misc{deepseek-harness2026,
+  title={DeepSeek Harness: Everything is a Plugin},
+  author={DeepSeek-AI},
+  year={2026},
+  publisher={GitHub},
+  howpublished={\url{https://github.com/deepseek-ai/deepseek-harness}},
+}
+```
 
 ## 许可证
 
