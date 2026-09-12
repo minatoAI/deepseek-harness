@@ -134,6 +134,9 @@ describe('dsh-tool-team', () => {
     expect(leadPrompt).toContain('Bash, formatters, code generators, and scripts are not fully protected')
     expect(leadPrompt).toContain('Task readiness never starts an owner')
     expect(leadPrompt).toContain('returns noProgress immediately')
+    expect(leadPrompt).toContain('block inside the turn with wait_agent')
+    const waitSchema = leadAssembly.tools.find(schema => schema.name === 'wait_agent')
+    expect(JSON.stringify(waitSchema)).toContain('keep the turn alive with this call')
     expect(leadPrompt).toContain('Your Team role is lead')
 
     const spawned = await execute(ctx, lead, 'spawn_teammate', {
