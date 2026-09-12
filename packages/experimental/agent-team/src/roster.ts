@@ -20,6 +20,7 @@ import type {
   SpawnTeammateResult,
   TeamMemberSnapshot,
   TeamMemberView,
+  TeammateToolFilter,
 } from './types.ts'
 import { requiredText } from './validation.ts'
 
@@ -242,6 +243,31 @@ export class TeamRoster {
     await this.lifecycle.withTimeout(this.ctx.subagents.drainContinuableChildren(root, childIds))
   }
 
+  /**
+   * Reject tool_filter names tools.restrict() would refuse, before provisioning
+   * reserves the teammate name. Reads the same restrictable set restrict()
+   * validates against, so the two agree; names that resolve only as scoped
+   * tools get a removal hint (Team collaboration tools stay visible without
+   * listing) instead of the unknown-name error.
+   * @param root - exact live Team Lead whose tool view validates the filter.
+   * @param filter - per-teammate allow/deny tool scoping.
+   */
+  private assertRestrictableFilterTools(root: Agent, filter: TeammateToolFilter): void {
+    const known = this.ctx.tools.restrictableNames(root)
+    const unknown = [...filter.allow ?? [], ...filter.deny ?? []].filter(name => !known.includes(name))
+    if (unknown.length === 0) return
+    const scoped = unknown.filter(name => this.ctx.tools.get(name, root) !== undefined)
+    const mistyped = unknown.filter(name => !scoped.includes(name))
+    const parts: string[] = []
+    if (scoped.length > 0) {
+      parts.push(`lists scoped tools ${scoped.map(name => `"${name}"`).join(', ')} — Team collaboration tools stay visible without listing; remove them from tool_filter`)
+    }
+    if (mistyped.length > 0) {
+      parts.push(`names unknown global tools ${mistyped.map(name => `"${name}"`).join(', ')}; known global tools: ${known.sort().join(', ')}`)
+    }
+    throw new TeamError(`teammate tool_filter ${parts.join('; ')}`, 'TEAM_INVALID_TOOL_FILTER')
+  }
+
   /** Perform one creation admitted before the Team runtime disposal cutoff. */
   private async spawnAdmitted(
     caller: Agent,
@@ -260,6 +286,9 @@ export class TeamRoster {
       && request.toolFilter.allow === undefined
       && request.toolFilter.deny === undefined) {
       throw new TeamError('teammate toolFilter must declare allow and/or deny', 'TEAM_INVALID_TOOL_FILTER')
+    }
+    if (request.toolFilter !== undefined) {
+      this.assertRestrictableFilterTools(root, request.toolFilter)
     }
     const persona = request.persona === undefined
       ? undefined

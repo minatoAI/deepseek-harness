@@ -1879,6 +1879,31 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
         "fresh",
         "fork"
       ]
+    },
+    "tool_filter": {
+      "type": "object",
+      "description": "Optional per-teammate least-privilege scoping for global preset tools. Name global tools only: Team collaboration tools (send_message, team_task_*, list_agents, wait_agent) are scoped and always stay visible, and naming them fails creation before the teammate name is reserved.",
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "type": "array",
+          "description": "Global tool names the teammate keeps; everything else is hidden.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deny": {
+          "type": "array",
+          "description": "Global tool names hidden from the teammate.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "persona": {
+      "type": "string",
+      "description": "Optional per-teammate persona that replaces the inherited Lead persona for this teammate alone. Write it self-contained: the teammate identity and working style, keeping one-shot subagent use and output-style guidance; omit team-creation duties (Lead-only). Omission inherits the Lead persona; blank text is rejected."
     }
   },
   "required": [

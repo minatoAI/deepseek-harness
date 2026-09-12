@@ -541,6 +541,16 @@ guard(guard: ToolGuard): () => void
 get(name: string, scope?: ScopeKey): ToolDefinition | undefined
 
 /**
+ * Names one scope may mask with tools.restrict(): inherited (global plus
+ * ancestor) registrations, excluding the scope's own scoped tools. Reads the
+ * same set restrict() validates against, so callers can reject unknown names
+ * before committing to an operation restrict() would fail.
+ * @param scope - the viewing scope (the agent); omitted = the global view.
+ * @returns global-tool names available to restrict for that scope.
+ */
+restrictableNames(scope?: ScopeKey): string[]
+
+/**
  * Project visible definitions onto the allowlisted model-facing schema fields,
  * excluding execution and presentation callbacks.
  * @param scope - the viewing scope (the agent); omitted = the global view.

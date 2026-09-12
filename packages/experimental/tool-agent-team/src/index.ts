@@ -185,7 +185,7 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
         tool_filter: {
           type: 'object',
           additionalProperties: false,
-          description: 'Optional per-teammate least-privilege scoping for global preset tools. Team collaboration tools (send_message, team_task_*, list_agents, wait_agent) are scoped and always stay visible.',
+          description: 'Optional per-teammate least-privilege scoping for global preset tools. Name global tools only: Team collaboration tools (send_message, team_task_*, list_agents, wait_agent) are scoped and always stay visible, and naming them fails creation before the teammate name is reserved.',
           properties: {
             allow: {
               type: 'array',

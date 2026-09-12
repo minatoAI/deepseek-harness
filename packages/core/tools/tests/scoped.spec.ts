@@ -199,6 +199,15 @@ describe('restrict()', () => {
     expect(() => emptyScope.ctx.tools.restrict({ deny: ['ghost'] }))
       .toThrow(/known global tools: \(none\)/)
   })
+
+  it('reads the same restrictable set restrict() validates against', async () => {
+    const ctx = await mount()
+    const { key } = await mintAgentScope(ctx, 'a')
+    ctx.tools.register(tool('read'))
+    ctx.tools.register(tool('bash'))
+    expect([...ctx.tools.restrictableNames(key)].sort()).toEqual(['bash', 'read'])
+    expect([...ctx.tools.restrictableNames()].sort()).toEqual(['bash', 'read'])
+  })
 })
 
 describe('restrict() over an inherited scope layer', () => {

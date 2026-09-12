@@ -57,7 +57,7 @@ function positiveLimit(name: string, value: number): number {
 
 /** Agent Teams service backed by the exact live Lead Session log. */
 export class TeamService extends TypertRemoteService {
-  static inject = ['agents', 'sessions', 'sessionPersistence', 'sessionProjections', 'subagents']
+  static inject = ['agents', 'sessions', 'sessionPersistence', 'sessionProjections', 'subagents', 'tools']
 
   static Config: z<Config> = z.object({
     maxMembers: z.number().step(1).min(1).default(DEFAULT_MAX_MEMBERS),

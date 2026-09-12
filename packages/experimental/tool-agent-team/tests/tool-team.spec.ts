@@ -533,4 +533,38 @@ describe('dsh-tool-team', () => {
     expect(text(rejected)).toContain('non-empty')
     expect(ctx.agentTeams.listMembers(lead).map(member => member.name)).toEqual(['lead'])
   })
+
+  it('rejects scoped Team tool names with a removal hint without reserving the name', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const rejected = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'scoped-filter',
+      description: 'scoped names',
+      prompt: 'stay available',
+      tool_filter: { deny: ['team_task_list', 'send_message'] },
+    })
+    expect(rejected.isError).toBe(true)
+    expect(text(rejected)).toContain('scoped tools "team_task_list", "send_message"')
+    expect(text(rejected)).toContain('remove them from tool_filter')
+    expect(ctx.agentTeams.listMembers(lead).map(member => member.name)).toEqual(['lead'])
+  })
+
+  it('rejects unknown global tool names with the known list without reserving the name', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    ctx.tools.register(defineContentToolFixture({
+      name: 'search-docs',
+      description: 'search-docs fixture',
+      parameters: {},
+      async execute() { return [{ type: 'text', text: 'search-docs' }] },
+    }))
+    const rejected = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'ghost-filter',
+      description: 'unknown names',
+      prompt: 'stay available',
+      tool_filter: { allow: ['search-docs', 'ghost-tool'] },
+    })
+    expect(rejected.isError).toBe(true)
+    expect(text(rejected)).toContain('unknown global tools "ghost-tool"')
+    expect(text(rejected)).toContain('search-docs')
+    expect(ctx.agentTeams.listMembers(lead).map(member => member.name)).toEqual(['lead'])
+  })
 })

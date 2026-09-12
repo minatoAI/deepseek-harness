@@ -1212,6 +1212,18 @@ export class ToolRuntime extends Service {
   }
 
   /**
+   * Names one scope may mask with tools.restrict(): inherited (global plus
+   * ancestor) registrations, excluding the scope's own scoped tools. Reads the
+   * same set restrict() validates against, so callers can reject unknown names
+   * before committing to an operation restrict() would fail.
+   * @param scope - the viewing scope (the agent); omitted = the global view.
+   * @returns global-tool names available to restrict for that scope.
+   */
+  restrictableNames(scope?: ScopeKey): string[] {
+    return [...this.view(scope).restrictableNames]
+  }
+
+  /**
    * Resolve the definition that MAY EXECUTE for a call, applying the mode
    * collapse at the operation boundary that owns it. The registry view
    * (`get`) is presentation-agnostic; here a MODEL-DIRECT call under `ptc`
