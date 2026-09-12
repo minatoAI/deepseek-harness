@@ -6,6 +6,7 @@ English | [中文](README.zh.md)
 
 ## 记录列表（按完成时间倒序）
 
+- **2026-09-12** — [创建 teammate 时可透传独立 persona](2026-09-12-2025-teammate-persona.md)：`spawn_teammate` 新增 `persona`（独占覆盖继承来的 Lead persona，不传照旧，空文本占名前拒绝）。
 - **2026-09-12** — [创建 teammate 时可裁剪其全局工具集](2026-09-12-teammate-tool-filter.md)：`spawn_teammate` 新增 `tool_filter`（`allow`/`deny`），Team 协作工具恒可见，空过滤在占用名字前拒绝。
 - **2026-09-06** — [OpenCode 路由自动携带 x-opencode-session 会话亲和性](2026-09-06-opencode-session-affinity-header.md)：llm-pi-ai 对 OpenCode 系路由自动发送 loop 会话 id，无需配置，显式标头优先。
 - **2026-09-04** — [大图片请求体被网关快速重置时自动降级重试](2026-09-04-image-payload-fast-reset-degradation.md)：`llm-pi-ai` 在大载荷快速传输重置时逐轮减半图片预算重试，另补脱敏传输原因日志与压缩侧图片剥离。
