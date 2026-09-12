@@ -501,4 +501,36 @@ describe('dsh-tool-team', () => {
     expect(text(rejected)).toContain('neither allow nor deny')
     expect(ctx.agentTeams.listMembers(lead).map(member => member.name)).toEqual(['lead'])
   })
+
+  it('shadows the inherited persona per teammate without touching the Lead', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const spawned = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'scout',
+      description: 'terse scout',
+      prompt: 'stay available',
+      persona: 'You are a scout. Report tersely.',
+    })
+    expect(spawned.isError).toBe(false)
+    const child = await waitRunning(ctx, spawnedChildId(spawned))
+
+    expect(renderPrompt(await assembly(ctx, child))).toContain('You are a scout. Report tersely.')
+    expect(renderPrompt(await assembly(ctx, child))).toContain('Your Team role is teammate; your Team name is scout')
+    expect(renderPrompt(await assembly(ctx, lead))).not.toContain('You are a scout. Report tersely.')
+
+    await execute(ctx, lead, 'interrupt_agent', { target: 'scout' })
+    await waitNoAgent(ctx, child.id)
+  })
+
+  it('rejects a blank persona without reserving the teammate name', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const rejected = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'blank-persona',
+      description: 'blank persona',
+      prompt: 'stay available',
+      persona: '   ',
+    })
+    expect(rejected.isError).toBe(true)
+    expect(text(rejected)).toContain('non-empty')
+    expect(ctx.agentTeams.listMembers(lead).map(member => member.name)).toEqual(['lead'])
+  })
 })

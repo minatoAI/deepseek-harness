@@ -199,6 +199,10 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
             },
           },
         },
+        persona: {
+          type: 'string',
+          description: 'Optional per-teammate persona that replaces the inherited Lead persona for this teammate alone. Write it self-contained: the teammate identity and working style, keeping one-shot subagent use and output-style guidance; omit team-creation duties (Lead-only). Omission inherits the Lead persona; blank text is rejected.',
+        },
       },
       output: jsonOutput(SPAWN_VALUE_SCHEMA),
       async execute(args, exec) {
@@ -213,6 +217,9 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
         if (toolFilter !== undefined && toolFilter.allow === undefined && toolFilter.deny === undefined) {
           throw new Error('tool_filter names neither allow nor deny — omit it or name at least one global tool')
         }
+        if (args.persona !== undefined && args.persona.trim().length === 0) {
+          throw new Error('persona must be non-empty text — omit it to inherit the Lead persona')
+        }
         return await ctx.agentTeams.spawnTeammate(agent, {
           name: args.name,
           description: args.description,
@@ -220,6 +227,7 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
           context,
           provider: context === 'fork' ? config.forkProvider : config.freshProvider,
           ...toolFilter !== undefined ? { toolFilter } : {},
+          ...args.persona !== undefined ? { persona: args.persona } : {},
           signal: exec.signal,
         })
       },

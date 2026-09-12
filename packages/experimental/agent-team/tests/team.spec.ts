@@ -478,6 +478,20 @@ describe('Team identity and provisioning', () => {
     expect(durable(lead).members).toEqual([])
   })
 
+  it('rejects a blank teammate persona before provisioning reserves the name', async () => {
+    const { ctx, lead } = await setup([])
+    await expect(ctx.agentTeams.spawnTeammate(lead, {
+      name: 'blank-persona',
+      description: 'blank persona',
+      prompt: content('unused'),
+      context: 'fresh',
+      provider: 'spawn',
+      persona: '   ',
+      signal: SIGNAL,
+    })).rejects.toMatchObject({ code: 'TEAM_INVALID_ARGUMENT' })
+    expect(durable(lead).members).toEqual([])
+  })
+
   it('treats an ordinary fork as a new Root Team and filters inherited Team state', async () => {
     const { ctx, lead } = await setup([])
     await ctx.agentTeams.createTask(lead, { subject: 'parent task', description: 'belongs to parent' })

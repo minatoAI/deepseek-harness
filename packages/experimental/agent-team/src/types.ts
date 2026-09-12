@@ -170,6 +170,15 @@ export interface SpawnTeammateRequest {
    * toward least privilege. Unknown global names fail creation loud.
    */
   readonly toolFilter?: TeammateToolFilter
+  /**
+   * Optional per-teammate persona that shadows the inherited Lead persona
+   * for this child alone (the `deployment:persona-prefix` section, nearest
+   * scope wins; the Team policy and delegation context stay). Omission
+   * inherits the Lead persona unchanged. The value must be self-contained:
+   * give the teammate its own identity and working style and leave
+   * team-creation duties to the Lead. Blank text fails creation loud.
+   */
+  readonly persona?: string
   readonly signal: AbortSignal
 }
 

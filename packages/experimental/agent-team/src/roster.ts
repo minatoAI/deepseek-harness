@@ -162,7 +162,7 @@ export class TeamRoster {
   /**
    * Create one named, continuable direct child of the Team Lead.
    * @param caller - exact live Lead Agent.
-   * @param request - immutable name, description, prompt, context mode, provider, optional tool filter, and cancellation.
+   * @param request - immutable name, description, prompt, context mode, provider, optional tool filter, optional persona, and cancellation.
    * @returns the active roster row.
    */
   async spawn(caller: Agent, request: SpawnTeammateRequest): Promise<SpawnTeammateResult> {
@@ -261,6 +261,9 @@ export class TeamRoster {
       && request.toolFilter.deny === undefined) {
       throw new TeamError('teammate toolFilter must declare allow and/or deny', 'TEAM_INVALID_TOOL_FILTER')
     }
+    const persona = request.persona === undefined
+      ? undefined
+      : requiredText(request.persona, 'persona', 16_384)
     const childId = brandString<SessionId>(randomUUID())
     const member: TeamMemberSnapshot = {
       id: childId,
@@ -292,6 +295,7 @@ export class TeamRoster {
           prompt: request.prompt,
           parent: root,
           ...request.toolFilter !== undefined ? { toolFilter: request.toolFilter } : {},
+          ...persona !== undefined ? { persona } : {},
         },
         signal,
       })

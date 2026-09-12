@@ -147,7 +147,7 @@ export class TeamService extends TypertRemoteService {
   /**
    * Create one named, continuable direct child of the Team Lead.
    * @param caller - exact live Lead Agent.
-   * @param request - immutable name, description, prompt, context mode, provider, optional tool filter, and cancellation.
+   * @param request - immutable name, description, prompt, context mode, provider, optional tool filter, optional persona, and cancellation.
    * @returns the active roster row.
    */
   async spawnTeammate(caller: Agent, request: SpawnTeammateRequest): Promise<SpawnTeammateResult> {
