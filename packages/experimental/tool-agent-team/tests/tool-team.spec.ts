@@ -455,4 +455,50 @@ describe('dsh-tool-team', () => {
     await vi.waitFor(() => { expect(ctx.agents.get(childId)).toBeUndefined() }, { timeout: 5_000 })
     expect(ctx.agentTeams.listMembers(lead)[1]).toMatchObject({ provider: 'team-fresh' })
   })
+
+  it('trims global preset tools per teammate while keeping Team collaboration tools', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    for (const name of ['search-docs', 'write-code']) {
+      ctx.tools.register(defineContentToolFixture({
+        name,
+        description: `${name} fixture`,
+        parameters: {},
+        async execute() { return [{ type: 'text', text: name }] },
+      }))
+    }
+    expect(ctx.tools.get('search-docs', lead)).toBeDefined()
+    expect(ctx.tools.get('write-code', lead)).toBeDefined()
+
+    const spawned = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'researcher',
+      description: 'search only',
+      prompt: 'stay available',
+      tool_filter: { allow: ['search-docs'] },
+    })
+    expect(spawned.isError).toBe(false)
+    const child = await waitRunning(ctx, spawnedChildId(spawned))
+
+    expect(ctx.tools.get('search-docs', child)).toBeDefined()
+    expect(ctx.tools.get('write-code', child)).toBeUndefined()
+    expect(ctx.tools.get('send_message', child)).toBeDefined()
+    expect(ctx.tools.get('team_task_list', child)).toBeDefined()
+    expect(ctx.tools.get('search-docs', lead)).toBeDefined()
+    expect(ctx.tools.get('write-code', lead)).toBeDefined()
+
+    await execute(ctx, lead, 'interrupt_agent', { target: 'researcher' })
+    await waitNoAgent(ctx, child.id)
+  })
+
+  it('rejects an empty tool_filter without reserving the teammate name', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const rejected = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'empty-filter',
+      description: 'empty filter',
+      prompt: 'stay available',
+      tool_filter: {},
+    })
+    expect(rejected.isError).toBe(true)
+    expect(text(rejected)).toContain('neither allow nor deny')
+    expect(ctx.agentTeams.listMembers(lead).map(member => member.name)).toEqual(['lead'])
+  })
 })

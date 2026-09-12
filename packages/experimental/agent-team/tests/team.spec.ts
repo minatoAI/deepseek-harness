@@ -464,6 +464,20 @@ describe('Team identity and provisioning', () => {
     expect(durable(lead).members).toEqual([])
   })
 
+  it('rejects an empty teammate toolFilter before provisioning reserves the name', async () => {
+    const { ctx, lead } = await setup([])
+    await expect(ctx.agentTeams.spawnTeammate(lead, {
+      name: 'empty-filter',
+      description: 'empty filter',
+      prompt: content('unused'),
+      context: 'fresh',
+      provider: 'spawn',
+      toolFilter: {},
+      signal: SIGNAL,
+    })).rejects.toMatchObject({ code: 'TEAM_INVALID_TOOL_FILTER' })
+    expect(durable(lead).members).toEqual([])
+  })
+
   it('treats an ordinary fork as a new Root Team and filters inherited Team state', async () => {
     const { ctx, lead } = await setup([])
     await ctx.agentTeams.createTask(lead, { subject: 'parent task', description: 'belongs to parent' })

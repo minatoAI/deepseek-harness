@@ -4,6 +4,21 @@ import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
+/**
+ * Per-teammate scoping for global preset tools. Structurally identical to the
+ * canonical `ToolRestriction` in `@deepseek-ai/dsh-tools`, which this public
+ * vocabulary must not import: these types also ship to the browser face
+ * (`./client`), where host-only tool-registry declarations cannot appear.
+ * The service forwards the value to the continuable-subagent layer unchanged,
+ * so the two shapes must stay assignment-compatible.
+ */
+export interface TeammateToolFilter {
+  /** Global tool names the teammate keeps; everything else is hidden. */
+  readonly allow?: readonly string[]
+  /** Global tool names hidden from the teammate. */
+  readonly deny?: readonly string[]
+}
+
 /** Identifies the implicit team rooted at one top-level Session. */
 export type TeamId = Branded<'TeamId'>
 
@@ -147,6 +162,14 @@ export interface SpawnTeammateRequest {
   readonly prompt: ContentBlock[]
   readonly context: 'fresh' | 'fork'
   readonly provider: string
+  /**
+   * Optional per-teammate global-tool scoping, applied as a scoped
+   * `tools.restrict()` after the child joins its parent's preset.
+   * Scoped Team tools (`send_message`, `team_task_*`, …) are unaffected,
+   * so collaboration stays available while preset tools are trimmed
+   * toward least privilege. Unknown global names fail creation loud.
+   */
+  readonly toolFilter?: TeammateToolFilter
   readonly signal: AbortSignal
 }
 

@@ -182,17 +182,44 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
           enum: ['fresh', 'fork'],
           description: 'fresh starts without Lead history; fork inherits completed Lead turns. Defaults to fresh.',
         },
+        tool_filter: {
+          type: 'object',
+          additionalProperties: false,
+          description: 'Optional per-teammate least-privilege scoping for global preset tools. Team collaboration tools (send_message, team_task_*, list_agents, wait_agent) are scoped and always stay visible.',
+          properties: {
+            allow: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Global tool names the teammate keeps; everything else is hidden.',
+            },
+            deny: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Global tool names hidden from the teammate.',
+            },
+          },
+        },
       },
       output: jsonOutput(SPAWN_VALUE_SCHEMA),
       async execute(args, exec) {
         const agent = callingAgent(exec.agent, 'spawn_teammate')
         const context = args.context ?? 'fresh'
+        const toolFilter = args.tool_filter === undefined
+          ? undefined
+          : {
+            ...args.tool_filter.allow !== undefined ? { allow: args.tool_filter.allow } : {},
+            ...args.tool_filter.deny !== undefined ? { deny: args.tool_filter.deny } : {},
+          }
+        if (toolFilter !== undefined && toolFilter.allow === undefined && toolFilter.deny === undefined) {
+          throw new Error('tool_filter names neither allow nor deny — omit it or name at least one global tool')
+        }
         return await ctx.agentTeams.spawnTeammate(agent, {
           name: args.name,
           description: args.description,
           prompt: [{ type: 'text', text: args.prompt }],
           context,
           provider: context === 'fork' ? config.forkProvider : config.freshProvider,
+          ...toolFilter !== undefined ? { toolFilter } : {},
           signal: exec.signal,
         })
       },
