@@ -58,7 +58,10 @@
         targetWords: 5
         targetCjkCharacters: 10
         maxInputBytes: 4096
-        maxOutputTokens: 64
+        # Sized for thinking models: only the DeepSeek adapter disables
+        # thinking for session-title requests, so other routes spend part of
+        # this budget on reasoning before emitting the one-line title.
+        maxOutputTokens: 256
         timeoutMs: 60000
 
     - id: user-questions

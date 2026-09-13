@@ -507,7 +507,7 @@ describe('dsh web keyless CLI smoke', () => {
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
         const parsed = JSON.parse(body) as { max_tokens?: number; messages?: unknown[] }
-        const titleRequest = parsed.max_tokens === 64
+        const titleRequest = parsed.max_tokens === 256
         const mainRequest = !titleRequest && body.includes(promptMarker)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         if (!mainRequest) {
