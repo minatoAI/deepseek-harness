@@ -102,7 +102,7 @@ kind: "package-library"
 
 #### Token 影响
 
-辅助请求根据所选输入大小与 `maxOutputTokens` 消耗 token。它与主 agent 请求相互独立，不会向 agent 历史增加标题文本或封装内容。DeepSeek 标题调用会关闭思考；主对话保留自身配置的思考模式。
+辅助请求根据所选输入大小与 `maxOutputTokens` 消耗 token。它与主 agent 请求相互独立，不会向 agent 历史增加标题文本或封装内容。DeepSeek 标题调用会关闭思考，pi-ai 适配器在模型提供 off 等级时也将标题调用解析为不思考；主对话保留自身配置的思考模式。
 
 #### KV Cache 影响
 

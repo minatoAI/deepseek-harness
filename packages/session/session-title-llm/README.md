@@ -102,7 +102,7 @@ The title model receives a fixed system instruction to return one concise unador
 
 #### Token effect
 
-The auxiliary request consumes tokens according to selected input size and `maxOutputTokens`. It is separate from the main agent request and does not add title text or framing to agent history. DeepSeek title calls disable thinking; the main conversation retains its configured thinking mode.
+The auxiliary request consumes tokens according to selected input size and `maxOutputTokens`. It is separate from the main agent request and does not add title text or framing to agent history. DeepSeek title calls disable thinking, and the pi-ai adapter resolves title calls to no thinking when the model offers it; the main conversation retains its configured thinking mode.
 
 #### KV Cache effect
 

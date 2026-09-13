@@ -379,9 +379,18 @@ export class PiAiAdapter extends LlmAdapter {
     // the one it started with and the next call picks up the new one.
     const profile = this.profileOf(snapshot, options.provider)
     const model = this.modelOf(snapshot, options.provider, options.model)
+    // Auxiliary title calls carry a small output budget; use no thinking
+    // when the model offers it so the budget serves visible title text.
+    // Models without `off` keep the profile default, and title acceptance
+    // still rejects an over-thinking result through the shared fallback.
+    const titleEffort = options.purpose === 'session-title'
+      && getSupportedThinkingLevels(model).includes('off')
+      ? 'off' as const
+      : undefined
     const reasoning = resolveReasoningLevel(
       model,
-      options.reasoningEffort
+      titleEffort
+        ?? options.reasoningEffort
         ?? profile.configuredDefaultEfforts.get(options.model)
         ?? profile.reasoning,
     )
