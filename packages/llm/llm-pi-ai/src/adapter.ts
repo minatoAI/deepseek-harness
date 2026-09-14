@@ -156,6 +156,21 @@ function describableReasoningLevel(
     : undefined
 }
 
+/**
+ * Lowest thinking level for auxiliary title calls.
+ *
+ * `getSupportedThinkingLevels` returns escalation order, so the first entry
+ * is the cheapest: `off` when the model offers it, otherwise the smallest
+ * thinking level (for example `low` on a `{ low, high }` model). Title calls
+ * carry a small output budget, so the budget serves visible title text
+ * instead of a reasoning trace.
+ * @param model - the resolved model descriptor.
+ * @returns the cheapest supported level, or undefined when none is reported.
+ */
+function titleReasoningLevel(model: Model<Api>): ModelThinkingLevel | undefined {
+  return getSupportedThinkingLevels(model)[0]
+}
+
 /** Validate an explicit Harness/profile effort without invoking pi-ai's clamp. */
 function resolveReasoningLevel(
   model: Model<Api>,
@@ -379,13 +394,13 @@ export class PiAiAdapter extends LlmAdapter {
     // the one it started with and the next call picks up the new one.
     const profile = this.profileOf(snapshot, options.provider)
     const model = this.modelOf(snapshot, options.provider, options.model)
-    // Auxiliary title calls carry a small output budget; use no thinking
-    // when the model offers it so the budget serves visible title text.
-    // Models without `off` keep the profile default, and title acceptance
-    // still rejects an over-thinking result through the shared fallback.
+    // Auxiliary title calls carry a small output budget; use the cheapest
+    // supported thinking level so the budget serves visible title text.
+    // Models without `off` fall back to their lowest thinking level rather
+    // than the profile default, and title acceptance still rejects an
+    // over-thinking result through the shared fallback.
     const titleEffort = options.purpose === 'session-title'
-      && getSupportedThinkingLevels(model).includes('off')
-      ? 'off' as const
+      ? titleReasoningLevel(model)
       : undefined
     const reasoning = resolveReasoningLevel(
       model,

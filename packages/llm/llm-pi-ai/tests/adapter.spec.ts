@@ -265,7 +265,7 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
   })
 
-  it('keeps the profile default for session-title requests when off is unavailable', async () => {
+  it('uses the lowest thinking level for session-title requests when off is unavailable', async () => {
     vi.stubEnv('PI_TEST_KEY', 'test-key')
     const server = await mockServer([{ events: textEvents }])
     const ctx = new Context()
@@ -293,7 +293,7 @@ describe('PiAiAdapter provider routing', () => {
       messages: [],
       purpose: 'session-title',
     })
-    expect(server.requests[0]).toMatchObject({ reasoning_effort: 'high' })
+    expect(server.requests[0]).toMatchObject({ reasoning_effort: 'low' })
   })
 
   it('preserves omitted profile options when constructing the adapter directly', async () => {
