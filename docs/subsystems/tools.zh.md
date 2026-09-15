@@ -513,6 +513,11 @@ presentAs(mode: ToolPresentationMode): () => void
 /**
  * Register globally or in the calling agent scope. Scoped tools shadow
  * globals; duplicates within one layer and the reserved `run_code` name fail.
+ * `parameters` is normalized at registration: a complete JSON Schema passes
+ * through byte-for-byte (with a structural validation), a defineTool-style
+ * property table is converted with a warning, and anything else throws a
+ * tool-named error — so a malformed schema fails here instead of at the
+ * first model call.
  * @param definition - tool schema, execution, and optional finalization/presentation callbacks.
  * @returns the exact disposer that unregisters the tool.
  */
@@ -549,6 +554,16 @@ guard(guard: ToolGuard): () => void
  * @returns the definition the scope resolves, or undefined when none is visible.
  */
 get(name: string, scope?: ScopeKey): ToolDefinition | undefined
+
+/**
+ * Names one scope may mask with tools.restrict(): inherited (global plus
+ * ancestor) registrations, excluding the scope's own scoped tools. Reads the
+ * same set restrict() validates against, so callers can reject unknown names
+ * before committing to an operation restrict() would fail.
+ * @param scope - the viewing scope (the agent); omitted = the global view.
+ * @returns global-tool names available to restrict for that scope.
+ */
+restrictableNames(scope?: ScopeKey): string[]
 
 /**
  * Project visible definitions onto the allowlisted model-facing schema fields,

@@ -33,6 +33,15 @@ describe('reasoning schema boundary', () => {
     expect(configWith({ reasoningEfforts: { high: 42 } })).toThrow()
   })
 
+  it('accepts the reserved default key as a mapping onto a thinking level', () => {
+    expect(configWith({ reasoningEfforts: { default: 'medium' } })).not.toThrow()
+    expect(configWith({ reasoningEfforts: { default: 'medium', medium: 'medium' } })).not.toThrow()
+    // The settings seam runs this validator at registration: a schema-only
+    // accept that then failed here would still unmount every custom route.
+    expect(() => { assertServiceable(configWith({ reasoningEfforts: { default: 'medium' } })() as Config) })
+      .not.toThrow()
+  })
+
   it('keeps false distinguishable from an absent declaration', () => {
     type Materialized = { providers: Record<string, { models?: { reasoningEfforts?: unknown }[] }> }
     const withFalse = configWith({ reasoningEfforts: false })() as Materialized
@@ -91,6 +100,14 @@ describe('request image policy bounds', () => {
     ['requestImagePixelBudget', Number.MAX_SAFE_INTEGER + 1, /requestImagePixelBudget must be a positive safe integer/],
     ['requestImageMaxBytes', 0, /requestImageMaxBytes must be a positive safe integer/],
     ['requestImageMaxBytes', 1.5, /requestImageMaxBytes must be a positive safe integer/],
+    ['imagePayloadWarnBytes', 0, /imagePayloadWarnBytes must be a positive safe integer/],
+    ['imagePayloadWarnBytes', 1.5, /imagePayloadWarnBytes must be a positive safe integer/],
+    ['imagePayloadDegradeMinBytes', 0, /imagePayloadDegradeMinBytes must be a positive safe integer/],
+    ['imagePayloadDegradeMinBytes', Number.NaN, /imagePayloadDegradeMinBytes must be a positive safe integer/],
+    ['imageDegradeFastFailMs', 0, /imageDegradeFastFailMs must be a positive finite number/],
+    ['imageDegradeFastFailMs', Number.POSITIVE_INFINITY, /imageDegradeFastFailMs must be a positive finite number/],
+    ['maxImageDegradeRounds', -1, /maxImageDegradeRounds must be a non-negative integer/],
+    ['maxImageDegradeRounds', 1.5, /maxImageDegradeRounds must be a non-negative integer/],
   ] as const)('rejects %s=%s at service resolution', (field, value, message) => {
     const programmatic = {
       providers: {

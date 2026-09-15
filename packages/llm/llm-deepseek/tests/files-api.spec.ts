@@ -232,6 +232,35 @@ describe('DeepSeekFilesClient', () => {
     })
   })
 
+  it('splits 403 region blocks from credential failures', async () => {
+    const region = new DeepSeekFilesClient({
+      protocol: 'chat-completions',
+      baseURL: 'https://api.deepseek.com',
+      apiKey: 'key',
+      fetch: vi.fn(() => Promise.resolve(new Response(
+        JSON.stringify({ error: { type: 'RegionError', message: 'This model is not available in your country' } }),
+        { status: 403 },
+      ))),
+    })
+    await expect(region.retrieve(DeepSeekFileId('missing'))).rejects.toMatchObject({
+      name: 'DeepSeekFilesError',
+      code: 'REGION_UNSUPPORTED',
+    })
+    const plain = new DeepSeekFilesClient({
+      protocol: 'chat-completions',
+      baseURL: 'https://api.deepseek.com',
+      apiKey: 'key',
+      fetch: vi.fn(() => Promise.resolve(new Response(
+        JSON.stringify({ error: { message: 'forbidden' } }),
+        { status: 403 },
+      ))),
+    })
+    await expect(plain.retrieve(DeepSeekFileId('missing'))).rejects.toMatchObject({
+      name: 'DeepSeekFilesError',
+      code: 'AUTH',
+    })
+  })
+
   it.each([
     null,
     [],

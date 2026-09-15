@@ -24,6 +24,7 @@ import { assertSupportedJsonSchema, validateJsonSchemaValue } from './json-schem
 import type { JsonSchemaNode } from './json-schema.ts'
 import { createRunCodeTool, RUN_CODE_NAME } from './ptc.ts'
 import type { PtcSdkLanguage } from './ptc.ts'
+import { normalizeRegisteredParameters } from './schema.ts'
 import { renderToolsSdk } from './ts-types.ts'
 import type { ToolSdkSchema } from './ts-types.ts'
 import { renderToolsSdkPy } from './py-types.ts'
@@ -60,6 +61,7 @@ export {
   defineTool,
   valueSchemaSpecToJsonSchema,
   parameterSchemaSpecToJsonSchema,
+  normalizeRegisteredParameters,
   validateArgs,
   ToolArgsError,
   type ValueSchemaAnnotations,
@@ -1037,11 +1039,23 @@ export class ToolRuntime extends Service {
   /**
    * Register globally or in the calling agent scope. Scoped tools shadow
    * globals; duplicates within one layer and the reserved `run_code` name fail.
+   * `parameters` is normalized at registration: a complete JSON Schema passes
+   * through byte-for-byte (with a structural validation; an object root may
+   * compose `oneOf`/`anyOf` branches instead of declaring `properties`),
+   * a defineTool-style property table is converted with a warning, and
+   * anything else throws a tool-named error — so a malformed schema fails
+   * here instead of at the first model call.
    * @param definition - tool schema, execution, and optional finalization/presentation callbacks.
    * @returns the exact disposer that unregisters the tool.
    */
   register(definition: ToolDefinition): () => void {
     const name = definition.name
+    const parameters = normalizeRegisteredParameters(name, definition.parameters)
+    if (parameters !== definition.parameters) {
+      this.ctx.logger.warn(
+        `tool "${name}": parameters given as a defineTool-style property table — converted to a complete JSON Schema for the model API; pass a complete JSON Schema to register() to avoid the conversion`,
+      )
+    }
     const output = (definition as Partial<ToolDefinition>).output
     if (output === undefined || typeof output !== 'object'
       || typeof output.render !== 'function'
@@ -1060,9 +1074,12 @@ export class ToolRuntime extends Service {
     if (name === RUN_CODE_NAME) {
       throw new Error(`tool name "${RUN_CODE_NAME}" is reserved for the PTC mode presentation transport and cannot be registered or shadowed`)
     }
+    // A converted property table replaces only the `parameters` field; every
+    // other reference (output, execute, presenters) is retained unchanged.
+    const normalized = parameters === definition.parameters ? definition : { ...definition, parameters }
     return this.layers.effect(
       this.ctx,
-      layer => layer.tools.insert(name, definition),
+      layer => layer.tools.insert(name, normalized),
       { label: 'tools.register()' },
     )
   }
@@ -1209,6 +1226,18 @@ export class ToolRuntime extends Service {
    */
   get(name: string, scope?: ScopeKey): ToolDefinition | undefined {
     return this.view(scope).visible.get(name)
+  }
+
+  /**
+   * Names one scope may mask with tools.restrict(): inherited (global plus
+   * ancestor) registrations, excluding the scope's own scoped tools. Reads the
+   * same set restrict() validates against, so callers can reject unknown names
+   * before committing to an operation restrict() would fail.
+   * @param scope - the viewing scope (the agent); omitted = the global view.
+   * @returns global-tool names available to restrict for that scope.
+   */
+  restrictableNames(scope?: ScopeKey): string[] {
+    return [...this.view(scope).restrictableNames]
   }
 
   /**

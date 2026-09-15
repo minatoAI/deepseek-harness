@@ -58,7 +58,10 @@
         targetWords: 5
         targetCjkCharacters: 10
         maxInputBytes: 4096
-        maxOutputTokens: 64
+        # Sized for thinking models: title requests resolve to the lowest
+        # supported thinking level, so other routes spend only the smallest
+        # reasoning cost before emitting the one-line title.
+        maxOutputTokens: 256
         timeoutMs: 60000
 
     - id: user-questions

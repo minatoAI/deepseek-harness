@@ -933,6 +933,42 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('API key is invalid')).toBeTruthy()
   })
 
+  it('localizes a REGION_UNSUPPORTED request failure with key-valid guidance', () => {
+    const turns: readonly TrajectoryTurnModel[] = [{
+      turn: 1,
+      groups: [{
+        title: 'Step 1',
+        cells: [{
+          index: 1,
+          kind: 'message',
+          text: '',
+          requestOnly: true,
+          isError: true,
+          timeSeconds: 0.1,
+        }],
+      }],
+    }]
+    render(
+      <TrajectoryTable
+        turns={turns}
+        requestNumbers={[{
+          turn: 1,
+          step: 1,
+          seq: 1,
+          group: 'Step 1',
+          number: 1,
+          status: 'error',
+          error: 'not available in region',
+          errorCode: 'REGION_UNSUPPORTED',
+        }]}
+        {...FOLD_PROPS}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Request #1' }))
+    expect(screen.getByText('Model unavailable in the current region (403). The key is valid. Check the egress region or VPN, retry later, or switch model or provider. See the session log.')).toBeTruthy()
+  })
+
   it('shows the custom role tooltip only from the responsive icon', () => {
     const view = render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
     const toolTag = view.container.querySelector<HTMLElement>('[data-role-kind="tool"]')

@@ -24,6 +24,7 @@ import {
   type ProfileManifest,
 } from '@deepseek-ai/dsh-app-boot'
 import { INSTALL_ANCHOR } from './profile-boot.ts'
+import { checkBundle, renderCheckReport } from './plugin-check.ts'
 
 const NAME = 'dsh'
 
@@ -109,6 +110,19 @@ function anchorPathSpec(argument: string, cwd: string): string {
   // path, and the anchor must not change which one the user asked for.
   const prefix = match.groups.prefix ?? ''
   return `${prefix}${resolve(cwd, match.groups.path)}`
+}
+
+/**
+ * Run `dsh plugin check`: validate the target bundle locally (no install, no
+ * network, no subprocess) and print the rendered report.
+ * @param target - the bundle directory to check.
+ * @param json - render the report as JSON instead of text.
+ * @returns the process exit code: 0 when every row is ok, 1 otherwise.
+ */
+export async function runPluginCheck(target: string, json: boolean): Promise<number> {
+  const report = await checkBundle(target)
+  process.stdout.write(renderCheckReport(report, json))
+  return report.ok ? 0 : 1
 }
 
 /**

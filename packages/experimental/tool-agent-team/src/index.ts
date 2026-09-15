@@ -34,7 +34,7 @@ The Team Lead and all teammates share the same working directory and filesystem.
 
 Prefer read/edit/write for file changes. If a file operation returns FS_STALE_VERSION, read the current file, rebase your intended change onto the new content, and retry. Bash, formatters, code generators, and scripts are not fully protected by the filesystem version guard; coordinate them explicitly and have the Lead review the final diff and run tests.
 
-send_message steers a running target at its nearest step boundary, starts an idle target, and cold-resumes an inactive teammate. A delivered peer item starts with its stable message id and sender name. A successful send is already durable even when its result says queued; do not resend it. Shared-task workflow is list, get, claim with the current revision, perform the work, then complete. Task readiness never starts an owner. Before wait_agent, use list_agents and make sure another required member is running or provisioning; use send_message first when the required member is inactive. wait_agent observes only changes after that call starts, never wakes a member, and returns noProgress immediately when no other member can produce a change. Re-list after wakeup or timeout. The Lead must wait for required teammates before giving the final answer.`
+send_message steers a running target at its nearest step boundary, starts an idle target, and cold-resumes an inactive teammate. A delivered peer item starts with its stable message id and sender name. A successful send is already durable even when its result says queued; do not resend it. Shared-task workflow is list, get, claim with the current revision, perform the work, then complete. Task readiness never starts an owner. Before wait_agent, use list_agents and make sure another required member is running or provisioning; use send_message first when the required member is inactive. wait_agent observes only changes after that call starts, never wakes a member, and returns noProgress immediately when no other member can produce a change. Re-list after wakeup or timeout instead of polling. While waiting for teammates, block inside the turn with wait_agent; when a goal is active, ending the turn idle starts its next round immediately, so polling outside wait_agent spins. The Lead must wait for required teammates before giving the final answer.`
 
 const ACTIVE_WAIT_STATUSES: ReadonlySet<TeamMemberView['status']> = new Set(['running', 'provisioning'])
 const NO_ACTIVE_PEER_MESSAGE = 'No other Team member is running or provisioning. wait_agent cannot make progress or wake inactive teammates. Re-list with list_agents and team_task_list, then use send_message to wake each required inactive teammate before waiting again.'
@@ -179,11 +179,44 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
           enum: ['fresh', 'fork'],
           description: 'fresh starts without Lead history; fork inherits completed Lead turns. Defaults to fresh.',
         },
+        tool_filter: {
+          type: 'object',
+          additionalProperties: false,
+          description: 'Optional per-teammate least-privilege scoping for global preset tools. Name global tools only: Team collaboration tools (send_message, team_task_*, list_agents, wait_agent) are scoped and always stay visible, and naming them fails creation before the teammate name is reserved.',
+          properties: {
+            allow: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Global tool names the teammate keeps; everything else is hidden.',
+            },
+            deny: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Global tool names hidden from the teammate.',
+            },
+          },
+        },
+        persona: {
+          type: 'string',
+          description: 'Optional per-teammate persona that replaces the inherited Lead persona for this teammate alone. Write it self-contained: the teammate identity and working style, keeping one-shot subagent use and output-style guidance; omit team-creation duties (Lead-only). Omission inherits the Lead persona; blank text is rejected.',
+        },
       },
       output: jsonOutput(SPAWN_VALUE_SCHEMA),
       async execute(args, exec) {
         const agent = callingAgent(exec.agent, 'spawn_teammate')
         const context = args.context ?? 'fresh'
+        const toolFilter = args.tool_filter === undefined
+          ? undefined
+          : {
+            ...args.tool_filter.allow !== undefined ? { allow: args.tool_filter.allow } : {},
+            ...args.tool_filter.deny !== undefined ? { deny: args.tool_filter.deny } : {},
+          }
+        if (toolFilter !== undefined && toolFilter.allow === undefined && toolFilter.deny === undefined) {
+          throw new Error('tool_filter names neither allow nor deny — omit it or name at least one global tool')
+        }
+        if (args.persona !== undefined && args.persona.trim().length === 0) {
+          throw new Error('persona must be non-empty text — omit it to inherit the Lead persona')
+        }
         return await ctx.agentTeams.spawnTeammate(agent, {
           name: args.name,
           description: args.description,
@@ -193,6 +226,8 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
           ],
           context,
           provider: context === 'fork' ? config.forkProvider : config.freshProvider,
+          ...toolFilter !== undefined ? { toolFilter } : {},
+          ...args.persona !== undefined ? { persona: args.persona } : {},
           signal: exec.signal,
         })
       },
@@ -227,7 +262,7 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
 
     register(scoped.tools.register(defineTool({
       name: 'wait_agent',
-      description: 'Wait for the next teammate status, mailbox, or shared-task change after this call starts. This never wakes inactive members and returns noProgress immediately when no other member is running or provisioning. Re-list after wakeup or timeout instead of polling.',
+      description: 'Wait for the next teammate status, mailbox, or shared-task change after this call starts. This never wakes inactive members and returns noProgress immediately when no other member is running or provisioning. Re-list after wakeup or timeout instead of polling. While waiting, keep the turn alive with this call instead of ending the turn or shell-polling.',
       parameters: {
         timeout_ms: {
           type: 'integer',

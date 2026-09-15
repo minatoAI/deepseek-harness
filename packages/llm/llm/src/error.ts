@@ -47,6 +47,15 @@ export const EMPTY_RESPONSE_CODE = 'EMPTY_RESPONSE'
  */
 export const INVALID_CREDENTIAL_CODE = 'INVALID_CREDENTIAL'
 
+/**
+ * Canonical provider-neutral code for a model request rejected because the
+ * model is unavailable in the egress region. Distinct from `AUTH` because the
+ * fix differs: keep the key and change region, network, model, or provider.
+ * Deliberately outside the default retryable set — retrying the same route
+ * from the same region fails identically.
+ */
+export const REGION_UNSUPPORTED_CODE = 'REGION_UNSUPPORTED'
+
 /** Structured codes and plain phrases that explicitly name a context bound being exceeded. */
 const STRUCTURED_CONTEXT_OVERFLOW = new RegExp(
   String.raw`(?:^|[^a-z0-9])context[\s_-](?:length|window)[\s_-]`
@@ -97,6 +106,17 @@ export function isQuotaExceededError(detail: string): boolean {
     || /\bexceed(?:ed|s)?[\s_-]+(?:(?:your|the)[\s_-]+)?(?:current[\s_-]+)?quota\b/i.test(detail)
     || /\b(?:balance|credits?)[\s_-]+(?:exhausted|depleted)\b/i.test(detail)
     || /\bout[\s_-]+of[\s_-]+(?:credits?|budget)\b/i.test(detail)
+}
+
+/**
+ * Recognize provider wording that identifies a region restriction rather than
+ * an invalid credential. Callers require HTTP 403 alongside this fingerprint
+ * so a bare mention of a country or region never reclassifies another status.
+ * @param detail - provider error code/type/message text joined into one string.
+ * @returns true for RegionError and country/region availability wording.
+ */
+export function isRegionUnsupportedError(detail: string): boolean {
+  return /\bregionerror\b|not available in your country|not available in region|\bcountry\b|\bregion\b/i.test(detail)
 }
 
 /**

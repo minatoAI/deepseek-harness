@@ -1999,10 +1999,12 @@ describe('ToolRuntime', () => {
 
   it('rejects schema projection when a raw registration is not lossless JSON', async () => {
     const ctx = await setup()
+    // Structurally valid (properties present), but the `default` annotation is
+    // not lossless JSON — register accepts it, projection must reject it.
     ctx.tools.register({
       ...echoTool,
       name: 'lossy-schema',
-      parameters: { type: 'object', default: Number.NaN },
+      parameters: { type: 'object', properties: { x: { type: 'string' } }, default: Number.NaN },
     })
 
     expect(() => ctx.tools.schemas())
@@ -2623,7 +2625,7 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'reader', arguments: {} })
     expect(result.isError).toBe(true)
     expect(result.content[0]).toMatchObject({
-      text: 'Error: invalid arguments: missing required property "path"',
+      text: 'Error: invalid arguments: missing required property "reader.path"',
     })
   })
 
@@ -2667,7 +2669,7 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'reader', arguments: {} })
     expect(result.isError).toBe(true)
     expect(result.error).toEqual({
-      message: 'invalid arguments: missing required property "path"',
+      message: 'invalid arguments: missing required property "reader.path"',
       info: { name: 'ToolArgsError', code: 'INVALID_ARGS' },
     })
   })

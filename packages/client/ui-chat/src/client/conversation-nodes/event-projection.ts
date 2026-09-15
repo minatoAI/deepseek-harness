@@ -155,6 +155,14 @@ export function displayFailure(failure: unknown): DisplayFailure {
   // Provider AUTH messages may echo a masked or partially preserved credential.
   // Keep the raw diagnostic in the Session log, but never retain it in UI state.
   if (code === 'AUTH') return { code, message: '' }
+  // Region blocks carry no credential material, so keep the provider detail in
+  // UI state while the Session log keeps the full diagnostic.
+  if (code === 'REGION_UNSUPPORTED') {
+    return {
+      code,
+      message: typeof record.message === 'string' ? record.message : JSON.stringify(failure),
+    }
+  }
   return {
     ...(code === undefined ? {} : { code }),
     message: typeof record.message === 'string' ? record.message : JSON.stringify(failure),

@@ -46,6 +46,10 @@ kind: "package-reference"
         requestImagePixelBudget: 4194304 # total pixels; 2048 by 2048 default
         requestImageMaxBytes: 1048576    # raw bytes before base64 expansion
         maxRequestImageBytes: 20971520   # accumulated base64 payload
+        imagePayloadWarnBytes: 3145728   # warn-only bound for the prepared payload
+        imagePayloadDegradeMinBytes: 2097152 # large-payload floor for fast-reset degradation
+        imageDegradeFastFailMs: 3000     # fast window that marks a reset as body-size
+        maxImageDegradeRounds: 2         # halve-and-retry rounds after a fast reset
         retryPolicy:
           mode: normal
           maxRetries: 3
@@ -84,9 +88,17 @@ kind: "package-reference"
 | `requestImagePixelBudget` | `4,194,304` | 每张确定性请求图片的总像素预算 |
 | `requestImageMaxBytes` | `1 MiB` | 每张请求图片在 base64 扩展前的编码字节目标 |
 | `maxRequestImageBytes` | `20 MiB` | base64 图片载荷总上限，保留图片超过时请求以 `IMAGE_OFFLOAD_REQUIRED` 失败 |
+| `imagePayloadWarnBytes` | `3 MiB` | prepared 载荷达到即告警一次，不阻塞请求 |
+| `imagePayloadDegradeMinBytes` | `2 MiB` | 快速重置降级的载荷下限；更小载荷保持传统重试 |
+| `imageDegradeFastFailMs` | `3000` | 判定重置属于包体问题而非中途断流的时间窗口 |
+| `maxImageDegradeRounds` | `2` | 快速重置或显式 413 后的减半重试轮数 |
 | `retryPolicy` | normal，5 次重试 | 由 `dsh-llm-retry` 执行的提供方自有重试策略 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-llm-pi-ai)是每个受支持字段及其 JSDoc 的穷尽式真源。
+
+### 发送 OpenCode 会话亲和性
+
+服务 OpenCode 托管推理的路由（`opencode`、`opencode-go`，或 `baseURL` 指向 `opencode.ai` 的任意路由）会携带 `x-opencode-session`，值为 loop 盖章的会话 id，因此同一会话无需配置即可保持稳定路由。同名部署标头不分大小写优先；无会话 id 的请求与模型发现探测不带该标头。
 
 ### 登录提供方
 
@@ -100,7 +112,7 @@ profile 的 `models` 列表会替换而非扩展路由的已安装目录；每�
 
 `reasoningEfforts` 声明模型可选择的 thinking 等级：每个键都是选择器提供的等级，其值是分派时在协议中发送的拼写，因此 `max: ultra` 可以为拥有自有词汇的网关重命名等级。省略该字段时保留已安装目录条目的能力；`false` 声明非推理模型。对于 pi-ai 无法识别的端点，`compat` 开关重塑请求——哪个角色携带系统提示词、哪个字段限制输出、thinking 等级如何传递——可逐路由、逐模型配置。条目与已安装目录都没有尺寸的模型，会采用路由的 `defaultContextWindow` 与 `defaultMaxTokens` 回退值。
 
-对于自托管 Chat Completions 端点，`thinkingTokenBudgetField` 选择推理预算参数，`vllmPriority` 在服务端启用优先级调度时设置整数调度优先级。模板参数接受 `$var: thinking.budget`。`openai-responses` 网关可设置 `supportsMaxOutputTokens: false` 来省略 `max_output_tokens`；Azure 与 Codex 传输会忽略这个共享兼容字段。这些控制均需显式启用；目录拥有的 Anthropic effort 和回退能力不是可配置开关。
+对于自托管 Chat Completions 端点，`thinkingTokenBudgetField` 选择推理预算参数，`vllmPriority` 在服务端启用优先级调度时设置整数调度优先级。模板参数接受 `$var: thinking.budget`。`openai-responses` 网关可设置 `supportsMaxOutputTokens: false` 来省略 `max_output_tokens`；Azure 与 Codex 传输会忽略这个共享兼容字段。这些控制均需显式启用；目录拥有的 Anthropic effort 和回退能力不是可配置开关。purpose 为 `'session-title'` 的请求解析为最低支持的 thinking 等级（模型提供 off 时即为 off），使小额标题输出预算用于可见标题文本而非推理轨迹。
 
 ### 运行时更改配置
 
@@ -112,7 +124,11 @@ profile 通过可选 settings seam 每次操作重新读取：base 与用户的 
 
 ### 失败与恢复
 
-pi-ai 不提供的路由需要 `api`、`baseURL` 与非空 `models` 列表；无法服务的 profile 会在写入处被拒绝，并点名路由与模型。失败携带稳定 code：无法使用的凭据以 `INVALID_CREDENTIAL` 失败并点名路由与引用，`apiKeyEnv` 引用解析为空的路由以 `MISSING_CREDENTIAL` 失败，未配置模型以 `UNKNOWN_MODEL` 失败，终止性提供方失败则区分 `QUOTA` 与暂时性 `RATE_LIMIT`。`GenerateOptions.stop` 以 `UNSUPPORTED_OPTION` 被拒绝，因为 pi-ai 的通用流式 UI 无法跨提供方保证它。
+pi-ai 不提供的路由需要 `api`、`baseURL` 与非空 `models` 列表；无法服务的 profile 会在写入处被拒绝，并点名路由与模型。失败携带稳定 code：无法使用的凭据以 `INVALID_CREDENTIAL` 失败并点名路由与引用，`apiKeyEnv` 引用解析为空的路由以 `MISSING_CREDENTIAL` 失败，未配置模型以 `UNKNOWN_MODEL` 失败，终止性提供方失败则区分 `QUOTA` 与暂时性 `RATE_LIMIT`。携带 `RegionError` 或国家/地区措辞的 403 以 `REGION_UNSUPPORTED` 而非 `AUTH` 失败：密钥有效，请检查出口地区或 VPN，稍后重试，或切换模型或提供方。`AUTH` 与 `REGION_UNSUPPORTED` 默认都不重试。`GenerateOptions.stop` 以 `UNSUPPORTED_OPTION` 被拒绝，因为 pi-ai 的通用流式 UI 无法跨提供方保证它。
+
+### 扛住网关请求体重置
+
+在接收大图片包体时重置连接的网关，会表现为快速 `TRANSPORT` 失败（或显式 `413`），而原样重试同样的字节只会以同样方式失败。当 prepared 图片载荷达到 `imagePayloadDegradeMinBytes`，适配器会降级而不是重复：显式拒绝不论耗时一律降级，而重置只在 `imageDegradeFastFailMs` 内且尚未流出任何内容时降级。每轮把 `maxRequestImageBytes` 上限减半（最旧图片先卸载）并重试，最多 `maxImageDegradeRounds` 轮；载荷达到 `imagePayloadWarnBytes` 则经 `onReplayDegrade` 告警一次，不阻塞请求。pi-ai 会把失败压平成裸消息，捕获的 socket cause 可以让 `TRANSPORT` 分类更准确：设置 `DSH_LOG_UNDICI_CAUSE=1` 即向 stderr 记录脱敏后的方法、主机、路径、大小、耗时与 code（从不记录头、包体、查询与凭据）。`TRANSPORT` 仍可重试，降级轮数耗尽后仍会回到 profile `retryPolicy`，并从完整载荷重新开始。
 
 Settings 写入会在合并组合层与用户层后严格校验每个新增或修改的提供方。命名空间注册时，已存储配置的目录解析错误会保留命名空间与提供方行，并通过 `LlmConfigurableProvider.error` 优先返回首个模型诊断，无模型诊断时返回路由错误；未修改的错误提供方不会阻止其他编辑。可解析的模型仍可选择，无法解析的模型保留在可编辑配置中，直接请求时会在网络 I/O 前以 `INVALID_CONFIG` 失败。修复或删除错误配置会清除诊断。Schema 与 profile 自身的约束错误仍会拒绝加载。后续外部文件编辑会校验变化的提供方，失败时保留最后一次接受的分节。
 
@@ -144,6 +160,8 @@ Settings 写入会在合并组合层与用户层后严格校验每个新增或�
 | [`src/provider.ts`](src/provider.ts) | 受支持协议表与提供方构建 |
 | [`src/context.ts`](src/context.ts) | Harness 到 pi-ai 的上下文转换、图片处理、回放恢复 |
 | [`src/stream.ts`](src/stream.ts) | 把 pi-ai 事件转换为 harness `StreamChunk` 值 |
+| [`src/image-degrade.ts`](src/image-degrade.ts) | 快速重置降级或重试决策、减半步长预算、告警格式化 |
+| [`src/transport-cause.ts`](src/transport-cause.ts) | 保留 socket cause 的脱敏 fetch／诊断通道观察器 |
 | [`src/replay.ts`](src/replay.ts) | 带版本的 `ReplayEnvelope` 存储与校验 |
 | [`src/discovery.ts`](src/discovery.ts) | 面向配置界面的端点询问 |
 
@@ -212,6 +230,7 @@ pi-ai 事件变成 harness 的推理、文本、工具调用、用量与 finish 
 这些限制说明适配器在哪里停止、由未来工作接续。它们是当前包约束，不是通用 pi-ai 对比或任务积压。
 
 - **`maxRequestImageBytes` 只计算 base64 图片载荷**，文本、工具、描述符与 JSON 结构在该上限之外，因此它必须留有余量地低于网关请求体上限。
+- **降级只救包体重置，不是所有失败**——只对快速失败的大载荷（或显式 413）触发；中途断流、小载荷、先收后截断的网关保持传统重试。
 - **登录只存在于发起它的进程中**——授权尝试不持久，因此登录中途刷新页面会放弃它，用户需要重新开始。退出登录是对已存储记录执行 `deleteRecord`，只在本地忘记它，不会告知签发方。
 - **提供方原生发现经本插件的 ambient context 回答**——不点名凭据的路由交由目录提供方自身解析，它会询问环境值（`AZURE_OPENAI_API_KEY`、`AWS_PROFILE` 及各提供方自有集合）与本地凭据文件。两个问题都在这里得到回答：凭据 seam 先于进程环境被查询，文件存在性则针对宿主进程的文件系统以 `~` 展开后检查。它做不到的是*读取*凭据文件内容——自行解析 `~/.aws/credentials` 的提供方会直接读取，不经该 seam。
 - **设置可以新增或覆盖路由，不能移除组合路由**——用户层覆盖组合 base，因此删除 `cordis.yml` 提供的提供方属于组合变更。

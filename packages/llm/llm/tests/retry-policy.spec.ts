@@ -20,6 +20,8 @@ describe('provider retry policy', () => {
     })
     expect(Object.isFrozen(policy)).toBe(true)
     if (policy.mode !== 'normal') throw new Error('expected normal policy')
+    expect(policy.retryableCodes).not.toContain('AUTH')
+    expect(policy.retryableCodes).not.toContain('REGION_UNSUPPORTED')
     expect(Object.isFrozen(policy.retryableCodes)).toBe(true)
   })
 

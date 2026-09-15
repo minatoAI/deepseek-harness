@@ -32,6 +32,8 @@ export async function mockServer(script: {
   body?: string
   delayMs?: number
   headers?: Record<string, string>
+  /** Destroy the socket on receipt, so the client sees a transport reset with no response. */
+  destroySocket?: boolean
 }[]): Promise<MockServer> {
   const paths: string[] = []
   const requests: unknown[] = []
@@ -45,6 +47,12 @@ export async function mockServer(script: {
     })
     let body = ''
     request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
+    const behaviorPeek = script[0]
+    if (behaviorPeek?.destroySocket === true) {
+      script.shift()
+      request.socket.destroy()
+      return
+    }
     request.on('end', () => {
       paths.push(request.url ?? '')
       requests.push(body.length === 0 ? undefined : JSON.parse(body))

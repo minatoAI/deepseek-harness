@@ -9,12 +9,19 @@ import type {
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import LlmRuntime, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent, type FinishReason } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
-import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
+import { OPENCODE_SESSION_HEADER, PiAiAdapter, needsOpencodeSession } from '@deepseek-ai/dsh-llm-pi-ai'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
-import { DEFAULT_MAX_REQUEST_IMAGE_BYTES, resolveProfiles } from '../src/config.ts'
+import {
+  DEFAULT_IMAGE_DEGRADE_FAST_FAIL_MS,
+  DEFAULT_IMAGE_PAYLOAD_DEGRADE_MIN_BYTES,
+  DEFAULT_IMAGE_PAYLOAD_WARN_BYTES,
+  DEFAULT_MAX_IMAGE_DEGRADE_ROUNDS,
+  DEFAULT_MAX_REQUEST_IMAGE_BYTES,
+  resolveProfiles,
+} from '../src/config.ts'
 import { memoryAuth } from './auth-double.ts'
 import { assemble } from './assemble.ts'
 import { closeMockServers, mockServer, textEvents } from './mock-server.ts'
@@ -123,6 +130,68 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
   })
 
+  async function opencodeHarness(baseURL: string, overrides: Record<string, unknown> = {}): Promise<Context> {
+    vi.stubEnv('PI_TEST_KEY', 'test-key')
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: { 'opencode-go': { apiKeyEnv: 'PI_TEST_KEY', baseURL, ...overrides } },
+    })
+    return ctx
+  }
+
+  it('sends x-opencode-session from the loop session id on opencode-go routes', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await opencodeHarness(server.url)
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'deepseek-v4-flash',
+      messages: [],
+      sessionId: 'session-123' as never,
+    })
+    expect(server.headers[0]?.[OPENCODE_SESSION_HEADER]).toBe('session-123')
+  })
+
+  it('omits x-opencode-session when the request carries no session id', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await opencodeHarness(server.url)
+    await assemble(ctx, { provider: 'opencode-go', model: 'deepseek-v4-flash', messages: [] })
+    expect(server.headers[0]?.[OPENCODE_SESSION_HEADER]).toBeUndefined()
+  })
+
+  it('keeps an explicit x-opencode-session deployment header over the automatic value', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await opencodeHarness(server.url, {
+      headers: { 'X-OpenCode-Session': 'explicit' },
+    })
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'deepseek-v4-flash',
+      messages: [],
+      sessionId: 'session-123' as never,
+    })
+    expect(server.headers[0]?.[OPENCODE_SESSION_HEADER]).toBe('explicit')
+  })
+
+  it('does not send x-opencode-session on non-OpenCode routes', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness(server.url)
+    await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [],
+      sessionId: 'session-123' as never,
+    })
+    expect(server.headers[0]?.[OPENCODE_SESSION_HEADER]).toBeUndefined()
+  })
+
+  it('matches OpenCode routes by key or managed endpoint address', () => {
+    expect(needsOpencodeSession('opencode-go')).toBe(true)
+    expect(needsOpencodeSession('opencode')).toBe(true)
+    expect(needsOpencodeSession('deepseek')).toBe(false)
+    expect(needsOpencodeSession('acme-gateway', 'https://opencode.ai/zen/v1')).toBe(true)
+    expect(needsOpencodeSession('acme-gateway', 'https://gateway.example.com/v1')).toBe(false)
+  })
+
   it('forwards common stream options and profile reasoning', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, {
@@ -181,6 +250,50 @@ describe('PiAiAdapter provider routing', () => {
       failure: { code: 'UNSUPPORTED_REASONING_EFFORT' },
     })
     expect(server.requests).toHaveLength(2)
+  })
+
+  it('disables thinking for session-title requests when the model offers off', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness(server.url, { reasoning: 'max' })
+
+    await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [],
+      purpose: 'session-title',
+    })
+    expect(server.requests[0]).toMatchObject({ thinking: { type: 'disabled' } })
+    expect(server.requests[0]).not.toHaveProperty('reasoning_effort')
+  })
+
+  it('uses the lowest thinking level for session-title requests when off is unavailable', async () => {
+    vi.stubEnv('PI_TEST_KEY', 'test-key')
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          reasoning: 'high',
+          models: [{
+            id: 'acme-think',
+            contextWindow: 65_536,
+            maxTokens: 4096,
+            reasoningEfforts: { low: 'low', high: 'high' },
+          }],
+        },
+      },
+    })
+
+    await assemble(ctx, {
+      provider: 'acme-gateway',
+      model: 'acme-think',
+      messages: [],
+      purpose: 'session-title',
+    })
+    expect(server.requests[0]).toMatchObject({ reasoning_effort: 'low' })
   })
 
   it('preserves omitted profile options when constructing the adapter directly', async () => {
@@ -377,6 +490,7 @@ describe('PiAiAdapter provider routing', () => {
 
   it.each([
     [401, 'AUTH'],
+    [403, 'AUTH'],
     [400, 'INVALID_REQUEST'],
     [429, 'RATE_LIMIT'],
     [500, 'SERVER'],
@@ -385,6 +499,17 @@ describe('PiAiAdapter provider routing', () => {
     const ctx = await harness(server.url)
     const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
     expect(result.finish).toMatchObject({ kind: 'error', failure: { code } })
+    expect(server.paths).toEqual(['/chat/completions'])
+  })
+
+  it('maps a 403 RegionError body to REGION_UNSUPPORTED', async () => {
+    const server = await mockServer([{
+      status: 403,
+      body: JSON.stringify({ error: { type: 'RegionError', message: 'This model is not available in your country' } }),
+    }])
+    const ctx = await harness(server.url)
+    const result = await assemble(ctx, { model: 'deepseek-v4-flash', messages: [] })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'REGION_UNSUPPORTED' } })
     expect(server.paths).toEqual(['/chat/completions'])
   })
 
@@ -593,6 +718,63 @@ describe('provider profile lifecycle', () => {
         defaultEffort: ReasoningEffortId('high'),
       },
     })
+  })
+
+  it('honours a per-model reasoningEfforts.default over the route reasoning field', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: 'https://acme.test/v1',
+          reasoning: 'high',
+          models: [{
+            id: 'acme-think',
+            contextWindow: 65_536,
+            maxTokens: 4096,
+            reasoningEfforts: { default: 'low', off: null, low: 'low', high: 'high' },
+          }],
+        },
+      },
+    })
+
+    await expect(ctx.llm.resolveModelInfo('acme-gateway', 'acme-think')).resolves.toMatchObject({
+      reasoning: {
+        defaultEffort: ReasoningEffortId('low'),
+      },
+    })
+  })
+
+  it('sends the per-model default when the request names no effort', async () => {
+    vi.stubEnv('PI_TEST_KEY', 'test-key')
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        'acme-gateway': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          reasoning: 'high',
+          models: [{
+            id: 'acme-think',
+            contextWindow: 65_536,
+            maxTokens: 4096,
+            reasoningEfforts: { default: 'low', off: null, low: 'low', high: 'high' },
+          }],
+        },
+      },
+    })
+
+    await assemble(ctx, {
+      provider: 'acme-gateway',
+      model: 'acme-think',
+      messages: [],
+    })
+    expect(server.requests[0]).toMatchObject({ reasoning_effort: 'low' })
   })
 
   it('sends the declared wire spelling and refuses undeclared levels before network I/O', async () => {
@@ -837,6 +1019,27 @@ describe('provider profile lifecycle', () => {
       .toBe(1024)
   })
 
+  it('resolves image payload warn and degrade knobs with gateway-aware defaults', () => {
+    const resolved = resolveProfiles({ openai: {} }).get('openai')
+    expect(resolved?.imagePayloadWarnBytes).toBe(DEFAULT_IMAGE_PAYLOAD_WARN_BYTES)
+    expect(resolved?.imagePayloadDegradeMinBytes).toBe(DEFAULT_IMAGE_PAYLOAD_DEGRADE_MIN_BYTES)
+    expect(resolved?.imageDegradeFastFailMs).toBe(DEFAULT_IMAGE_DEGRADE_FAST_FAIL_MS)
+    expect(resolved?.maxImageDegradeRounds).toBe(DEFAULT_MAX_IMAGE_DEGRADE_ROUNDS)
+    expect(resolveProfiles({
+      openai: {
+        imagePayloadWarnBytes: 1024,
+        imagePayloadDegradeMinBytes: 512,
+        imageDegradeFastFailMs: 500,
+        maxImageDegradeRounds: 0,
+      },
+    }).get('openai')).toMatchObject({
+      imagePayloadWarnBytes: 1024,
+      imagePayloadDegradeMinBytes: 512,
+      imageDegradeFastFailMs: 500,
+      maxImageDegradeRounds: 0,
+    })
+  })
+
   it.each([
     ['bad header name', 'value'],
     ['x-company', 'line\nbreak'],
@@ -868,6 +1071,12 @@ describe('provider profile lifecycle', () => {
       { maxRequestImageBytes: 0 },
       { maxRequestImageBytes: 1.5 },
       { maxRequestImageBytes: Number.NaN },
+      { imagePayloadWarnBytes: 0 },
+      { imagePayloadDegradeMinBytes: -2 },
+      { imageDegradeFastFailMs: 0 },
+      { imageDegradeFastFailMs: MAX_TIMER_DELAY_MS + 1 },
+      { maxImageDegradeRounds: -1 },
+      { maxImageDegradeRounds: 0.5 },
     ]
     for (const entry of invalid) {
       const ctx = new Context()
@@ -1039,5 +1248,153 @@ describe('abort wiring', () => {
     }
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(server.requests).toHaveLength(1)
+  })
+})
+
+describe('image payload fast-reset degradation', () => {
+  const imageRef = (tag: string): ImageAttachmentRef => ({
+    attachmentId: AttachmentId(`sha256:${tag.repeat(64)}`),
+    mediaType: 'image/png',
+    bytes: 300,
+    width: 8,
+    height: 8,
+  })
+
+  /** Six 300-byte versions cost 400 base64 characters each: 2400 total. */
+  const sixImages = [createUserMessage({
+    content: ['c', 'd', 'e', 'f', 'g', 'h'].map(tag => ({ type: 'image', attachment: imageRef(tag) })),
+    source: { kind: 'plugin', plugin: 'test' },
+  })]
+
+  function visionStore(): AttachmentStore {
+    return {
+      readImageRequest: vi.fn((value: ImageAttachmentRef): Promise<RequestImageAttachment> => Promise.resolve({
+        variantId: ImageVariantId(`sha256:${'b'.repeat(64)}`),
+        attachment: value,
+        data: new Uint8Array(300),
+        mediaType: value.mediaType,
+        bytes: 300,
+        width: value.width,
+        height: value.height,
+        depth: 'uchar',
+        space: 'srgb',
+        hasAlpha: true,
+      })),
+      imageHostPath: () => undefined,
+    } as unknown as AttachmentStore
+  }
+
+  function visionAdapter(
+    server: { url: string },
+    overrides: Record<string, unknown> = {},
+    onReplayDegrade?: (detail: { provider: string; model: string; reason: string }) => void,
+  ): PiAiAdapter {
+    return new PiAiAdapter({
+      profiles: () => resolveProfiles({
+        'acme-vision': {
+          apiKeyEnv: 'PI_TEST_KEY',
+          api: 'openai-completions',
+          baseURL: `${server.url}/v1`,
+          models: [{ id: 'acme-vision', input: ['text', 'image'] }],
+          maxRequestImageBytes: 100_000,
+          imagePayloadWarnBytes: 1000,
+          imagePayloadDegradeMinBytes: 1000,
+          ...overrides,
+        },
+      }),
+      resolveApiKey: () => Promise.resolve('test-key'),
+      auth: memoryAuth(),
+      resolveAttachments: () => visionStore(),
+      resolveImageAccess: () => undefined,
+      ...onReplayDegrade === undefined ? {} : { onReplayDegrade },
+    })
+  }
+
+  async function streamFinish(adapter: PiAiAdapter): Promise<FinishReason> {
+    let finish: FinishReason = { kind: 'stop' }
+    for await (const chunk of adapter.stream({ provider: 'acme-vision', model: 'acme-vision', messages: sixImages })) {
+      if (chunk.type === 'finish') finish = chunk.reason
+    }
+    return finish
+  }
+
+  /** Count inline image payloads in one completions request body. */
+  function imageParts(body: unknown): number {
+    return (JSON.stringify(body).match(/data:image\/png;base64/g) ?? []).length
+  }
+
+  it('escalates a fast transport reset to durable image offload', async () => {
+    const server = await mockServer([{ destroySocket: true }, { events: textEvents }])
+    const reasons: string[] = []
+    // The shrunk degrade bound trips budget enforcement, so the retry
+    // surfaces the exact offload count for loop-owned compaction instead of
+    // sending an unlogged smaller projection.
+    await expect(streamFinish(visionAdapter(server, {}, ({ reason }) => { reasons.push(reason) })))
+      .rejects.toMatchObject({ code: 'IMAGE_OFFLOAD_REQUIRED', failure: { offloadImages: 3 } })
+    // The reset request never completes, so nothing lands.
+    expect(server.requests).toHaveLength(0)
+    expect(reasons).toHaveLength(2)
+    expect(reasons[0]).toContain('request-image-bytes=')
+    expect(reasons[1]).toContain('degraded image payload after fast reset round 1/2')
+  })
+
+  it('escalates an explicit 413 rejection to durable image offload', async () => {
+    const server = await mockServer([
+      { status: 413, body: JSON.stringify({ error: { message: '413 Payload Too Large' } }) },
+      { events: textEvents },
+    ])
+    const reasons: string[] = []
+    const stream = streamFinish(visionAdapter(server, {}, ({ reason }) => { reasons.push(reason) }))
+    await expect(stream).rejects.toMatchObject({ code: 'IMAGE_OFFLOAD_REQUIRED', failure: { offloadImages: 3 } })
+    expect(server.requests).toHaveLength(1)
+    expect(imageParts(server.requests[0])).toBe(6)
+    expect(reasons.filter(reason => reason.includes('request-image-bytes='))).toHaveLength(1)
+    expect(reasons.filter(reason => reason.includes('degraded image payload'))).toHaveLength(1)
+  })
+
+  it('keeps small payloads on the legacy retry path', async () => {
+    const server = await mockServer([
+      { status: 413, body: JSON.stringify({ error: { message: '413 Payload Too Large' } }) },
+    ])
+    const reasons: string[] = []
+    const finish = await streamFinish(visionAdapter(server, {
+      imagePayloadWarnBytes: 4096,
+      imagePayloadDegradeMinBytes: 4096,
+    }, ({ reason }) => {
+      reasons.push(reason)
+    }))
+    expect(finish).toMatchObject({ kind: 'error', failure: { code: 'INVALID_REQUEST' } })
+    expect(server.requests).toHaveLength(1)
+    expect(reasons).toEqual([])
+  })
+
+  it('restores legacy behavior with zero degrade rounds', async () => {
+    const server = await mockServer([
+      { status: 413, body: JSON.stringify({ error: { message: '413 Payload Too Large' } }) },
+    ])
+    const reasons: string[] = []
+    const finish = await streamFinish(visionAdapter(server, { maxImageDegradeRounds: 0 }, ({ reason }) => {
+      reasons.push(reason)
+    }))
+    expect(finish).toMatchObject({ kind: 'error', failure: { code: 'INVALID_REQUEST' } })
+    expect(server.requests).toHaveLength(1)
+    expect(reasons).toHaveLength(1)
+    expect(reasons[0]).toContain('request-image-bytes=')
+  })
+
+  it('does not degrade a failure that arrives after content', async () => {
+    const server = await mockServer([{ events: textEvents.slice(0, 2) }])
+    const reasons: string[] = []
+    const seen: string[] = []
+    const adapter = visionAdapter(server, {}, ({ reason }) => { reasons.push(reason) })
+    let finish: FinishReason = { kind: 'stop' }
+    for await (const chunk of adapter.stream({ provider: 'acme-vision', model: 'acme-vision', messages: sixImages })) {
+      seen.push(chunk.type)
+      if (chunk.type === 'finish') finish = chunk.reason
+    }
+    expect(finish).toMatchObject({ kind: 'error', failure: { code: 'TRANSPORT' } })
+    expect(seen).toContain('text-delta')
+    expect(server.requests).toHaveLength(1)
+    expect(reasons.some(reason => reason.includes('degraded image payload'))).toBe(false)
   })
 })

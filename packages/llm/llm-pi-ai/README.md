@@ -46,6 +46,10 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
         requestImagePixelBudget: 4194304 # total pixels; 2048 by 2048 default
         requestImageMaxBytes: 1048576    # raw bytes before base64 expansion
         maxRequestImageBytes: 20971520   # accumulated base64 payload
+        imagePayloadWarnBytes: 3145728   # warn-only bound for the prepared payload
+        imagePayloadDegradeMinBytes: 2097152 # large-payload floor for fast-reset degradation
+        imageDegradeFastFailMs: 3000     # fast window that marks a reset as body-size
+        maxImageDegradeRounds: 2         # halve-and-retry rounds after a fast reset
         retryPolicy:
           mode: normal
           maxRetries: 3
@@ -84,9 +88,17 @@ Each profile may set a `retryPolicy`; omission uses normal mode with five retrie
 | `requestImagePixelBudget` | `4,194,304` | Total-pixel budget for each deterministic request image |
 | `requestImageMaxBytes` | `1 MiB` | Encoded-byte target for each request image before base64 expansion |
 | `maxRequestImageBytes` | `20 MiB` | Aggregate base64 image-payload bound; a request whose retained images exceed it fails with `IMAGE_OFFLOAD_REQUIRED` |
+| `imagePayloadWarnBytes` | `3 MiB` | Prepared-payload bound that warns once per request without blocking it |
+| `imagePayloadDegradeMinBytes` | `2 MiB` | Payload floor for fast-reset degradation; smaller payloads keep legacy retries |
+| `imageDegradeFastFailMs` | `3000` | Elapsed window that marks a reset as body-size rather than mid-stream |
+| `maxImageDegradeRounds` | `2` | Halve-and-retry rounds after a fast reset or an explicit 413 |
 | `retryPolicy` | normal, 5 retries | Provider-owned retry policy executed by `dsh-llm-retry` |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-llm-pi-ai) is the exhaustive source for every accepted field and its JSDoc.
+
+### Send OpenCode session affinity
+
+Routes serving OpenCode managed inference (`opencode`, `opencode-go`, or any route whose `baseURL` points at `opencode.ai`) carry `x-opencode-session` with the loop-stamped session id, so one conversation keeps stable routing without configuration. An explicit deployment header of the same name wins case-insensitively; requests without a session id and model-discovery probes omit the header.
 
 ### Sign in to a provider
 
@@ -98,9 +110,9 @@ A profile's `models` list replaces the route's installed catalog rather than ext
 
 ### Run with reasoning and wire compatibility
 
-`reasoningEfforts` declares a model's selectable thinking levels: each key is a level selectors offer, its value the spelling dispatch sends on the wire, so `max: ultra` renames a level for a gateway with its own vocabulary. Omitting the field keeps the installed catalog entry's capability; `false` declares a non-reasoning model. `compat` switches reshape the request for endpoints pi-ai cannot recognize — which role carries the system prompt, which field caps output, how a thinking level travels — configurable per route and per model. A model neither the entry nor the installed catalog sizes takes the route's `defaultContextWindow` and `defaultMaxTokens` fallbacks.
+`reasoningEfforts` declares a model's selectable thinking levels: each key is a level selectors offer, its value the spelling dispatch sends on the wire, so `max: ultra` renames a level for a gateway with its own vocabulary. The reserved `default` key is not a level: it names the canonical thinking level this model uses when a request names none, winning over the route-level `reasoning` field for that model only; the named level is itself part of the offer, so a dict containing only `default` keeps the installed catalog entry's offer instead of reading as empty. Omitting the field keeps the installed catalog entry's capability; `false` declares a non-reasoning model. `compat` switches reshape the request for endpoints pi-ai cannot recognize — which role carries the system prompt, which field caps output, how a thinking level travels — configurable per route and per model. A model neither the entry nor the installed catalog sizes takes the route's `defaultContextWindow` and `defaultMaxTokens` fallbacks.
 
-For self-hosted Chat Completions endpoints, `thinkingTokenBudgetField` selects the reasoning-budget parameter, and `vllmPriority` sets an integer scheduler priority when the server enables priority scheduling. Template arguments accept `$var: thinking.budget`. `openai-responses` gateways can set `supportsMaxOutputTokens: false` to omit `max_output_tokens`; Azure and Codex transports ignore this shared compatibility field. These controls are opt-in; catalog-owned Anthropic effort and fallback capabilities are not configurable switches.
+For self-hosted Chat Completions endpoints, `thinkingTokenBudgetField` selects the reasoning-budget parameter, and `vllmPriority` sets an integer scheduler priority when the server enables priority scheduling. Template arguments accept `$var: thinking.budget`. `openai-responses` gateways can set `supportsMaxOutputTokens: false` to omit `max_output_tokens`; Azure and Codex transports ignore this shared compatibility field. These controls are opt-in; catalog-owned Anthropic effort and fallback capabilities are not configurable switches. Requests with purpose `'session-title'` resolve to the lowest supported thinking level (`off` when the model offers it), so the small title output budget serves visible title text instead of a reasoning trace.
 
 ### Change configuration at runtime
 
@@ -112,7 +124,11 @@ The plugin answers "which models can this provider serve?" for a route a configu
 
 ### Failures and recovery
 
-A route pi-ai does not ship needs `api`, `baseURL`, and a non-empty `models` list; an unserviceable profile is refused where it is written, naming the route and model. Failures carry stable codes: a credential that cannot be used fails with `INVALID_CREDENTIAL` naming the route and reference, a route whose `apiKeyEnv` reference resolves to nothing fails with `MISSING_CREDENTIAL`, an unconfigured model fails with `UNKNOWN_MODEL`, and terminal provider failures distinguish `QUOTA` from transient `RATE_LIMIT`. `GenerateOptions.stop` is rejected with `UNSUPPORTED_OPTION` because pi-ai's common streaming UI cannot guarantee it across providers.
+A route pi-ai does not ship needs `api`, `baseURL`, and a non-empty `models` list; an unserviceable profile is refused where it is written, naming the route and model. Failures carry stable codes: a credential that cannot be used fails with `INVALID_CREDENTIAL` naming the route and reference, a route whose `apiKeyEnv` reference resolves to nothing fails with `MISSING_CREDENTIAL`, an unconfigured model fails with `UNKNOWN_MODEL`, and terminal provider failures distinguish `QUOTA` from transient `RATE_LIMIT`. A 403 carrying `RegionError` or country/region wording fails with `REGION_UNSUPPORTED` instead of `AUTH`: the key is valid, so check the egress region or VPN, retry later, or switch model or provider. Neither `AUTH` nor `REGION_UNSUPPORTED` retries by default. `GenerateOptions.stop` is rejected with `UNSUPPORTED_OPTION` because pi-ai's common streaming UI cannot guarantee it across providers.
+
+### Survive a gateway request-body reset
+
+A gateway that resets the connection while receiving a large image body surfaces as a fast `TRANSPORT` failure (or an explicit `413`), and retrying the identical bytes fails the same way. When the prepared image payload reaches `imagePayloadDegradeMinBytes`, the adapter degrades instead of repeating: an explicit rejection degrades regardless of timing, while a reset degrades only when it lands inside `imageDegradeFastFailMs` and before any content streams. Each round halves the `maxRequestImageBytes` bound (oldest images offload first) and retries, up to `maxImageDegradeRounds`; a payload reaching `imagePayloadWarnBytes` warns once through `onReplayDegrade` without blocking the request. A captured socket cause sharpens `TRANSPORT` classification where pi-ai flattens it: set `DSH_LOG_UNDICI_CAUSE=1` to log redacted method, host, path, sizes, timing, and codes to stderr (never headers, bodies, queries, or credentials). `TRANSPORT` stays retryable, so an exhausted degrade loop still returns to the profile `retryPolicy`, which restarts from the full payload.
 
 Settings writes strictly validate each new or changed provider after merging its composition and user layers. During namespace registration, stored catalog failures retain the namespace and provider rows, with the first available model diagnostic or route failure in `LlmConfigurableProvider.error`; unchanged failed providers do not block edits elsewhere. Serviceable models remain selectable, while unresolved models remain in the editable configuration and fail with `INVALID_CONFIG` before network I/O if requested directly. Repairing or deleting the offending configuration clears its diagnostic. Schema and self-contained profile errors still reject loading. Later external edits validate changed providers and retain the last accepted section on failure.
 
@@ -144,6 +160,8 @@ The adapter is built on immutable snapshots and per-operation resolution. Each o
 | [`src/provider.ts`](src/provider.ts) | The supported-protocol table and provider construction |
 | [`src/context.ts`](src/context.ts) | Harness-to-pi-ai context conversion, image handling, replay restore |
 | [`src/stream.ts`](src/stream.ts) | pi-ai event conversion into harness `StreamChunk` values |
+| [`src/image-degrade.ts`](src/image-degrade.ts) | Fast-reset degrade-or-retry decision, halve-step budget, warn formatting |
+| [`src/transport-cause.ts`](src/transport-cause.ts) | Redacted fetch/diagnostics observer that preserves socket causes |
 | [`src/replay.ts`](src/replay.ts) | Versioned `ReplayEnvelope` storage and validation |
 | [`src/discovery.ts`](src/discovery.ts) | Endpoint interrogation for configuration surfaces |
 
@@ -212,6 +230,7 @@ Recorded response content appends to the next request and does not invalidate it
 These limits define where the adapter stops and future work begins. They are current package constraints, not a general pi-ai comparison or a task backlog.
 
 - **`maxRequestImageBytes` counts base64 image payload only** — text, tools, descriptors, and JSON structure ride outside the bound, so it must sit below the gateway's request-body cap with headroom.
+- **Degradation rescues body-size resets, not every failure** — it fires only for large payloads that fail fast (or an explicit 413); mid-stream failures, small payloads, and gateways that accept-then-truncate keep legacy retries.
 - **A sign-in lives only in the process that started it** — an authorization attempt is not durable, so reloading the page mid-login abandons it and the human starts over. Signing out is `deleteRecord` on the stored record, which forgets it locally without telling the issuer.
 - **Provider-native discovery answers through this plugin's ambient context** — a route naming no credential defers to the catalog provider's own resolution, which asks for environment values (`AZURE_OPENAI_API_KEY`, `AWS_PROFILE`, and each provider's own set) and for local credential files. Both questions are answered here: the credential seam is consulted before the process environment, and file existence is checked against the host process's filesystem with `~` expanded. What it cannot do is *read* a credential file's contents — a provider that parses `~/.aws/credentials` itself does so directly, outside the seam.
 - **Settings can add or override routes, not remove composition routes** — the user layer merges over the composition base, so deleting a `cordis.yml`-provided provider is a composition change.

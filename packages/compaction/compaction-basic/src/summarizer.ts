@@ -5,7 +5,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { contentHasImage, createUserMessage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, createUserMessage, BlockAssembler, LlmError, projectImagesForTextModel } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock, FinishReason, GenerateOptions, Message, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
@@ -141,8 +141,11 @@ export async function summarizeWithLlm(
   }
 
   const assembler = new BlockAssembler()
+  // A poisoned image history must not poison its own rescue: gateways reset
+  // oversized bodies on sight, so the summarizer carries text plus stable
+  // placeholders and never re-sends the base64 bytes it is condensing.
   const messages: Message[] = [
-    ...input.messages,
+    ...projectImagesForTextModel(input.messages),
     createUserMessage({
       content: [{ type: 'text', text: COMPACTION_INSTRUCTION }],
       source: { kind: 'plugin', plugin: 'dsh-compaction-basic' },

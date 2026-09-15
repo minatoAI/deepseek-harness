@@ -9,11 +9,12 @@
  */
 
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, LlmError, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
+import { CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, isRegionUnsupportedError, LlmError, QUOTA_EXCEEDED_CODE, REGION_UNSUPPORTED_CODE } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, StreamChunk, TokenUsage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { isContextOverflow } from '@earendil-works/pi-ai'
 import type { AssistantMessage, AssistantMessageEvent, Usage as PiUsage } from '@earendil-works/pi-ai'
 import { toPiReplayState } from './replay.ts'
+import type { TransportErrorCause } from './transport-cause.ts'
 
 /**
  * Map pi-ai usage (reasoning folded into output by pi-ai).
@@ -37,9 +38,21 @@ export function mapUsage(usage: PiUsage): TokenUsage {
 // `cause` chain before it reaches us. undici carries the actionable transport
 // detail on `cause` (e.g. `SocketError: other side closed`) but hands the fetch
 // wrapper a bare `terminated`, so we are left pattern-matching terse words here.
-// If pi-ai ever forwards the original Error (or a fetch/dispatcher hook that lets
-// us capture the cause ourselves), classify on `code`/`cause` instead of text.
-function classifyPiAiError(message: string): string {
+// A captured cause (see transport-cause.ts) classifies first; without one the
+// text patterns below preserve the legacy behavior exactly.
+/**
+ * Map a flattened pi-ai error message to a stable harness code.
+ * @param message - flattened pi-ai error text.
+ * @param cause - redacted transport cause captured at the fetch boundary, if any.
+ * @returns the stable harness error code.
+ */
+export function classifyPiAiError(message: string, cause?: TransportErrorCause): string {
+  if (cause !== undefined) {
+    const observed = `${cause.code ?? ''} ${cause.message ?? ''}`
+    if (/\b413\b|payload too large|request body too large|length limit exceeded/i.test(observed)) return 'INVALID_REQUEST'
+    if (/\bUND_ERR_SOCKET\b|\bECONN[A-Z]*\b|\bETIMEDOUT\b|\bENOTFOUND\b|\bEAI_AGAIN\b|other side closed|terminated|premature close|fetch failed|\b(?:network|connection|socket|fetch)\b/i.test(observed)) return 'TRANSPORT'
+  }
+  if (/\b403\b/.test(message) && isRegionUnsupportedError(message)) return REGION_UNSUPPORTED_CODE
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
   if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'
@@ -71,13 +84,14 @@ function classifyPiAiError(message: string): string {
  * Map a terminal pi-ai event to the harness finish reason.
  * @param message - the assistant message carried by the `done` or `error` event.
  * @param contextWindow - resolved catalog capacity for usage-based overflow detection.
+ * @param cause - redacted transport cause captured at the fetch boundary, if any.
  * @returns the mapped harness reason. Recognized error text, `stop` usage above
  *   `contextWindow`, and zero-output `length` usage that fills the window map
  *   to `CONTEXT_WINDOW_EXCEEDED`; a `stop` with no content blocks maps to an
  *   `EMPTY_RESPONSE` error, while terminal `pending` and `deferred` states map
  *   to non-retryable `PI_AI_ERROR` failures.
  */
-export function mapStopReason(message: AssistantMessage, contextWindow?: number): FinishReason {
+export function mapStopReason(message: AssistantMessage, contextWindow?: number, cause?: TransportErrorCause): FinishReason {
   const piAiOverflow = isContextOverflow(message, contextWindow)
   const harnessOverflow = message.stopReason === 'error'
     && message.errorMessage !== undefined
@@ -122,7 +136,7 @@ export function mapStopReason(message: AssistantMessage, contextWindow?: number)
     }
     case 'error': {
       const text = message.errorMessage ?? 'pi-ai stream error'
-      return { kind: 'error', failure: { message: text, code: classifyPiAiError(text) } }
+      return { kind: 'error', failure: { message: text, code: classifyPiAiError(text, cause) } }
     }
   }
 }

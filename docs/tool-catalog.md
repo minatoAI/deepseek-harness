@@ -2218,6 +2218,31 @@ Create one named, durable teammate. Only the Team Lead may call this tool.
         "fresh",
         "fork"
       ]
+    },
+    "tool_filter": {
+      "type": "object",
+      "description": "Optional per-teammate least-privilege scoping for global preset tools. Name global tools only: Team collaboration tools (send_message, team_task_*, list_agents, wait_agent) are scoped and always stay visible, and naming them fails creation before the teammate name is reserved.",
+      "additionalProperties": false,
+      "properties": {
+        "allow": {
+          "type": "array",
+          "description": "Global tool names the teammate keeps; everything else is hidden.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deny": {
+          "type": "array",
+          "description": "Global tool names hidden from the teammate.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "persona": {
+      "type": "string",
+      "description": "Optional per-teammate persona that replaces the inherited Lead persona for this teammate alone. Write it self-contained: the teammate identity and working style, keeping one-shot subagent use and output-style guidance; omit team-creation duties (Lead-only). Omission inherits the Lead persona; blank text is rejected."
     }
   },
   "required": [
@@ -2399,7 +2424,7 @@ Source: [`packages/experimental/tool-agent-team/src/index.ts`](../packages/exper
 
 ### `wait_agent`
 
-Wait for the next teammate status, mailbox, or shared-task change after this call starts. This never wakes inactive members and returns noProgress immediately when no other member is running or provisioning. Re-list after wakeup or timeout instead of polling.
+Wait for the next teammate status, mailbox, or shared-task change after this call starts. This never wakes inactive members and returns noProgress immediately when no other member is running or provisioning. Re-list after wakeup or timeout instead of polling. While waiting, keep the turn alive with this call instead of ending the turn or shell-polling.
 
 ```json
 {

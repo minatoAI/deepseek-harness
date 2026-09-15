@@ -71,7 +71,7 @@ import { discoverModels } from './discovery.ts'
 import type { StoredModelDiscoveryProfile } from './discovery.ts'
 import { registerPiAiFlows } from './login.ts'
 
-export { PiAiAdapter } from './adapter.ts'
+export { OPENCODE_SESSION_HEADER, PiAiAdapter, needsOpencodeSession } from './adapter.ts'
 export type { PiAiAdapterOptions } from './adapter.ts'
 export { Config } from './config.ts'
 export type {

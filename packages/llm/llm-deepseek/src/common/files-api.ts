@@ -1,6 +1,6 @@
 /** DeepSeek Files API transport for Chat Completions and Messages endpoints. @module dsh-llm-deepseek/files-api */
 
-import { attributionHeaders, LlmError } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, isRegionUnsupportedError, LlmError, REGION_UNSUPPORTED_CODE } from '@deepseek-ai/dsh-llm'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import { DeepSeekFileId } from './file-id.ts'
 import type { DeepSeekFileId as DeepSeekFileIdType } from './file-id.ts'
@@ -51,13 +51,15 @@ export class DeepSeekFilesError extends LlmError {
    * @param detail - provider error fields joined for classification.
    */
   constructor(message: string, status: number, detail: string) {
-    super(message, status === 401 || status === 403
+    super(message, status === 401
       ? 'AUTH'
-      : status === 429
-        ? 'RATE_LIMIT'
-        : status >= 500
-          ? 'SERVER'
-          : 'FILES_API', { status })
+      : status === 403
+        ? (isRegionUnsupportedError(detail) ? REGION_UNSUPPORTED_CODE : 'AUTH')
+        : status === 429
+          ? 'RATE_LIMIT'
+          : status >= 500
+            ? 'SERVER'
+            : 'FILES_API', { status })
     this.name = 'DeepSeekFilesError'
     this.detail = detail
   }

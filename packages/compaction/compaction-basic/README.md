@@ -183,7 +183,7 @@ Replacing rather than append-only. Each checkpoint invalidates reuse from the fi
 
 #### What the model sees
 
-The summarization model receives the conversation replayed verbatim — the same system prompt, tool schemas, and messages the last routed request sent for the shadowed region — followed by one final user message: the compaction instruction below. The conversation model never sees this private request or its reasoning; only returned text is stored.
+The summarization model receives the conversation replayed verbatim — the same system prompt, tool schemas, and messages the last routed request sent for the shadowed region — with image blocks replaced by stable text placeholders, followed by one final user message: the compaction instruction below. Image bytes never travel on the summarizer request, so a poisoned history cannot poison its own rescue. The conversation model never sees this private request or its reasoning; only returned text is stored.
 
 ##### Compaction instruction (final user message)
 

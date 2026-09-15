@@ -52,9 +52,19 @@ export const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 300_000
  * can never complete another request. The 20MiB default admits fifteen 1MiB
  * request versions after base64 expansion and reserves request capacity for
  * system prompts, history, tools, and JSON.
- * Deployments behind stricter gateways lower it per route.
+ * Deployments behind stricter gateways lower it per route: the opencode Zen
+ * `go/v1/responses` route resets connections near 5MiB while 3MiB succeeds,
+ * so image-heavy routes set this and the warn/degrade knobs below near 2-3MiB.
  */
 export const DEFAULT_MAX_REQUEST_IMAGE_BYTES = 20 * 1024 * 1024
+/** Default base64 image payload that warns once per request without blocking it. */
+export const DEFAULT_IMAGE_PAYLOAD_WARN_BYTES = 3 * 1024 * 1024
+/** Default base64 image payload below which a fast transport failure never degrades. */
+export const DEFAULT_IMAGE_PAYLOAD_DEGRADE_MIN_BYTES = 2 * 1024 * 1024
+/** Default request window qualifying a transport failure as a gateway fast reset. */
+export const DEFAULT_IMAGE_DEGRADE_FAST_FAIL_MS = 3_000
+/** Default payload-degrade retries per step; zero restores the legacy retry behavior. */
+export const DEFAULT_MAX_IMAGE_DEGRADE_ROUNDS = 2
 /** Default total-pixel budget preserves the complete 2048px normalized attachment. */
 export const DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET = 2048 * 2048
 /** Default raw encoded-byte target before inline base64 expansion; the smallest quality-ladder output is used when no quality fits. */
@@ -177,6 +187,29 @@ export interface PiAiProviderProfile {
    * the smallest quality-ladder output is used when no quality fits.
    */
   requestImageMaxBytes?: number
+  /**
+   * Base64 image payload that warns once per request without blocking it.
+   * Gateways that reset large bodies deserve a value near their observed
+   * limit so the warning precedes the reset.
+   */
+  imagePayloadWarnBytes?: number
+  /**
+   * Base64 image payload below which a fast transport failure never degrades:
+   * small requests keep the legacy retry path instead of dropping images.
+   */
+  imagePayloadDegradeMinBytes?: number
+  /**
+   * Request window qualifying a transport failure as a gateway fast reset.
+   * A body the gateway rejects on sight fails in milliseconds, while ordinary
+   * network jitter fails later.
+   */
+  imageDegradeFastFailMs?: number
+  /**
+   * Payload-degrade retries per step; each retry at least halves the image
+   * payload by replacing the oldest images with placeholders. Zero disables
+   * degradation and restores the legacy retry behavior.
+   */
+  maxImageDegradeRounds?: number
   /** Provider-owned model-request retry policy; omission uses normal mode with five retries. */
   retryPolicy?: RetryPolicyConfig
 }
@@ -198,6 +231,14 @@ export interface ResolvedPiAiProviderProfile
   requestImagePixelBudget: number
   /** Positive raw request-version byte target after defaulting; the smallest quality-ladder output is used when no quality fits. */
   requestImageMaxBytes: number
+  /** Positive base64 image payload that warns once per request after defaulting. */
+  imagePayloadWarnBytes: number
+  /** Positive base64 image payload below which fast failures never degrade after defaulting. */
+  imagePayloadDegradeMinBytes: number
+  /** Positive fast-reset window in milliseconds after defaulting. */
+  imageDegradeFastFailMs: number
+  /** Non-negative payload-degrade retries per step after defaulting. */
+  maxImageDegradeRounds: number
   /** Immutable retry policy captured with this provider route. */
   retryPolicy: ResolvedRetryPolicy
   /**
@@ -215,6 +256,12 @@ export interface ResolvedPiAiProviderProfile
    * own, so a catalog capability must not appear here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /**
+   * Per-model deployment defaults named via `reasoningEfforts.default`.
+   * The adapter consults this before the route-level `reasoning` field, so
+   * one model can default to `medium` without forcing every sibling to.
+   */
+  configuredDefaultEfforts: ReadonlyMap<string, ModelThinkingLevel>
 }
 
 /** Plugin configuration: the provider routes this instance owns. */
@@ -281,18 +328,24 @@ const compatProfile: z<PiAiCompatProfile> = z.object({
 })
 
 /**
- * Keys are the offered levels, values their wire spellings. A valueless key
- * (`off:`) survives validation because schemastery passes nullable data
- * through before any member schema runs — `z.const(null)` only controls the
- * error for non-null wrong values and what a configuration UI renders.
- * Only resolution decides which levels may leave the value empty, so the
- * diagnostic can name the route and model. The assertion narrows
- * schemastery's `Dict`, which types every literal key as required; dict
- * validation checks only present keys, so the runtime value is a partial record.
+ * Keys are the offered levels plus the reserved `default` selector, values
+ * their wire spellings (or, for `default`, the canonical level to use when
+ * a request names none). A valueless key (`off:`) survives validation
+ * because schemastery passes nullable data through before any member schema
+ * runs — `z.const(null)` only controls the error for non-null wrong values
+ * and what a configuration UI renders. Only resolution decides which keys
+ * may leave the value empty, so the diagnostic can name the route and
+ * model. The assertion narrows schemastery's `Dict`, which types every
+ * literal key as required; dict validation checks only present keys, so
+ * the runtime value is a partial record.
+ *
+ * `default` must be a key the schema accepts: treating it as an unknown
+ * thinking level rejects the whole `llm-pi-ai` section at registration,
+ * which unmounts every custom provider and disables the add button.
  */
 const reasoningEfforts = z.dict(
   z.union([z.string(), z.const(null)]),
-  z.union(THINKING_LEVELS),
+  z.union([...THINKING_LEVELS, 'default']),
 ) as unknown as z<PiAiReasoningEfforts>
 
 /** The fields a `models` entry and a `modelOverrides` value share; only the id's home differs. */
@@ -341,6 +394,10 @@ const profile = z.object({
   maxRequestImageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_REQUEST_IMAGE_BYTES),
   requestImagePixelBudget: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET),
   requestImageMaxBytes: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_MAX_BYTES),
+  imagePayloadWarnBytes: z.number().step(1).min(1).default(DEFAULT_IMAGE_PAYLOAD_WARN_BYTES),
+  imagePayloadDegradeMinBytes: z.number().step(1).min(1).default(DEFAULT_IMAGE_PAYLOAD_DEGRADE_MIN_BYTES),
+  imageDegradeFastFailMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_IMAGE_DEGRADE_FAST_FAIL_MS),
+  maxImageDegradeRounds: z.number().step(1).min(0).default(DEFAULT_MAX_IMAGE_DEGRADE_ROUNDS),
   retryPolicy: RetryPolicySchema,
 })
 
@@ -442,6 +499,26 @@ export function resolveProfiles(
     if (!Number.isSafeInteger(requestImageMaxBytes) || requestImageMaxBytes <= 0) {
       throw new Error(`llm-pi-ai: provider "${provider}" requestImageMaxBytes must be a positive safe integer`)
     }
+    const imagePayloadWarnBytes = source.imagePayloadWarnBytes ?? DEFAULT_IMAGE_PAYLOAD_WARN_BYTES
+    if (!Number.isSafeInteger(imagePayloadWarnBytes) || imagePayloadWarnBytes <= 0) {
+      throw new Error(`llm-pi-ai: provider "${provider}" imagePayloadWarnBytes must be a positive safe integer`)
+    }
+    const imagePayloadDegradeMinBytes = source.imagePayloadDegradeMinBytes ?? DEFAULT_IMAGE_PAYLOAD_DEGRADE_MIN_BYTES
+    if (!Number.isSafeInteger(imagePayloadDegradeMinBytes) || imagePayloadDegradeMinBytes <= 0) {
+      throw new Error(`llm-pi-ai: provider "${provider}" imagePayloadDegradeMinBytes must be a positive safe integer`)
+    }
+    const imageDegradeFastFailMs = source.imageDegradeFastFailMs ?? DEFAULT_IMAGE_DEGRADE_FAST_FAIL_MS
+    if (!Number.isFinite(imageDegradeFastFailMs)
+      || imageDegradeFastFailMs <= 0
+      || imageDegradeFastFailMs > MAX_TIMER_DELAY_MS) {
+      throw new Error(
+        `llm-pi-ai: provider "${provider}" imageDegradeFastFailMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`,
+      )
+    }
+    const maxImageDegradeRounds = source.maxImageDegradeRounds ?? DEFAULT_MAX_IMAGE_DEGRADE_ROUNDS
+    if (!Number.isInteger(maxImageDegradeRounds) || maxImageDegradeRounds < 0) {
+      throw new Error(`llm-pi-ai: provider "${provider}" maxImageDegradeRounds must be a non-negative integer`)
+    }
     // Detached from the configuration object because pi-ai types `Model.input`
     // mutable. The schema's explicit default covers an absent key, so an empty
     // list here is always one someone typed — and unlike an entry's, nothing
@@ -493,10 +570,15 @@ export function resolveProfiles(
       maxRequestImageBytes,
       requestImagePixelBudget,
       requestImageMaxBytes,
+      imagePayloadWarnBytes,
+      imagePayloadDegradeMinBytes,
+      imageDegradeFastFailMs,
+      maxImageDegradeRounds,
       retryPolicy: resolveRetryPolicy(retryPolicy, `llm-pi-ai: provider "${provider}" retryPolicy`),
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog?.configuredMaxTokens ?? new Map(),
+      configuredDefaultEfforts: catalog?.configuredDefaultEfforts ?? new Map(),
       modelErrors: catalog?.modelErrors ?? new Map(),
       ...piProvider === undefined ? {} : { piProvider },
       ...catalogError === undefined ? {} : { catalogError },

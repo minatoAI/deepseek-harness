@@ -1297,6 +1297,29 @@ export interface PiAiProviderProfile {
    * the smallest quality-ladder output is used when no quality fits.
    */
   requestImageMaxBytes?: number
+  /**
+   * Base64 image payload that warns once per request without blocking it.
+   * Gateways that reset large bodies deserve a value near their observed
+   * limit so the warning precedes the reset.
+   */
+  imagePayloadWarnBytes?: number
+  /**
+   * Base64 image payload below which a fast transport failure never degrades:
+   * small requests keep the legacy retry path instead of dropping images.
+   */
+  imagePayloadDegradeMinBytes?: number
+  /**
+   * Request window qualifying a transport failure as a gateway fast reset.
+   * A body the gateway rejects on sight fails in milliseconds, while ordinary
+   * network jitter fails later.
+   */
+  imageDegradeFastFailMs?: number
+  /**
+   * Payload-degrade retries per step; each retry at least halves the image
+   * payload by replacing the oldest images with placeholders. Zero disables
+   * degradation and restores the legacy retry behavior.
+   */
+  maxImageDegradeRounds?: number
   /** Provider-owned model-request retry policy; omission uses normal mode with five retries. */
   retryPolicy?: RetryPolicyConfig
 }
@@ -1333,7 +1356,8 @@ export interface PiAiModelProfile {
    * entry's capability (a hand-declared model has none and does not reason);
    * `false` declares a non-reasoning model, which is how a profile strips
    * reasoning from a catalog model its gateway cannot serve; a non-empty dict
-   * declares the offered levels and their wire spellings.
+   * declares the offered levels and their wire spellings. The reserved
+   * `default` key picks this model's deployment default among those levels.
    */
   reasoningEfforts?: false | PiAiReasoningEfforts
   /** pi-ai wire-compatibility switches for this model, winning over the route's per field; one its protocol does not declare is refused. */
@@ -1451,8 +1475,22 @@ export type PiAiModality = Model<Api>['input'][number]
  * nothing" — because for most providers not thinking is the parameter's
  * absence; every other declared level must name a wire value. A level absent
  * from the dict is not offered.
+ *
+ * `default` is not a level key: it names the canonical thinking level this
+ * model uses when a request names none, winning over the route-level
+ * `reasoning` field for this model only. The named level is itself part of
+ * the offer — a dict that names level keys plus `default` offers the keys
+ * plus the default level (with the canonical spelling, unless a key restates
+ * it), so `{ default: medium, high: high }` offers medium and high. A dict
+ * that contains only `default` keeps the installed catalog entry's offer (a
+ * hand-declared model has none, so it offers the named default with that
+ * canonical spelling) instead of being read as an empty offer — that is the
+ * spelling for "keep the levels, pick the default".
  */
-export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | null>>
+export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | null>> & {
+  /** Canonical thinking level used when a request names none. */
+  default?: ModelThinkingLevel
+}
 
 /** One reasoning-dispatch wire format a profile may name. */
 export type PiAiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>

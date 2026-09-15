@@ -18,6 +18,7 @@ import type { Context as PiContext, ImageContent, Message as PiMessage, TextCont
 import { toPiAssistant } from './replay.ts'
 import { requestImageDimensions } from '@deepseek-ai/dsh-attachment'
 import { DEFAULT_REQUEST_IMAGE_MAX_BYTES, DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET } from './config.ts'
+import { formatImageMegabytes } from './image-degrade.ts'
 
 /** Join the text blocks of a harness message. */
 function flattenText(message: Message): string {
@@ -227,6 +228,8 @@ export interface PiImageRequestContext {
   maxRequestImageBytes?: number
   /** Route pixel and raw encoded-byte budgets. */
   requestImagePolicy?: PiImageRequestBudget
+  /** Base64 payload that warns once per request without blocking it; omission disables the warning. */
+  imagePayloadWarnBytes?: number
 }
 
 /** Per-route budgets from which each request image's target is derived. */
@@ -240,6 +243,34 @@ export interface PiImageRequestBudget {
 /** Deterministic request target for one source under the route budgets. */
 function requestImageTarget(ref: ImageAttachmentRef, budget: PiImageRequestBudget): ImageRequestTarget {
   return { ...requestImageDimensions(ref.width, ref.height, budget.maxPixels), maxBytes: budget.maxBytes }
+}
+
+/**
+ * Sum base64-encoded request-image bytes for prepared versions.
+ * @param versions - exact request-image versions resolved for this request.
+ * @returns accumulated base64 length including padding.
+ */
+export function requestImagePayloadBytes(versions: ReadonlyMap<unknown, { bytes: number }>): number {
+  let total = 0
+  for (const version of versions.values()) total += Math.ceil(version.bytes / 3) * 4
+  return total
+}
+
+/**
+ * Sum base64 image data carried by an assembled pi-ai context.
+ * @param context - assembled request context whose image blocks carry base64 data.
+ * @returns accumulated base64 data length.
+ */
+export function piContextImageBytes(context: PiContext): number {
+  let total = 0
+  for (const message of context.messages) {
+    const content = message.content as unknown
+    if (typeof content === 'string') continue
+    for (const block of content as Array<{ type: string; data?: unknown }>) {
+      if (block.type === 'image') total += (block.data as string).length
+    }
+  }
+  return total
 }
 
 /**
@@ -296,6 +327,11 @@ async function toPiContextWithImages(
   assertSupportedImageRoles(options.messages)
   const split = splitSystemPrompt(options)
   const requestImages = await prepareRequestImages(split.messages, attachments, requestImagePolicy, options.signal)
+  const payloadBytes = requestImagePayloadBytes(requestImages)
+  const warnBytes = images.imagePayloadWarnBytes
+  if (warnBytes !== undefined && payloadBytes >= warnBytes) {
+    onReplayDegrade?.(`request-image-bytes=${formatImageMegabytes(payloadBytes)}>warn=${formatImageMegabytes(warnBytes)}; expect gateway RST; consider fewer images`)
+  }
   if (maxRequestImageBytes !== undefined) {
     const offloadImages = requiredImageOffload(
       split.messages,

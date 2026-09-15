@@ -1,0 +1,3 @@
+[
+  { "kind": "throw", "chunks": [], "message": "simulated provider error (HTTP 403 RegionError: This model is not available in your country)", "code": "REGION_UNSUPPORTED" }
+]

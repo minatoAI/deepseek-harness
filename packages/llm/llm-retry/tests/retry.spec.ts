@@ -435,6 +435,19 @@ describe('provider-routed retry policy', () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it('delegates region blocks without scheduling a timer', async () => {
+    vi.useFakeTimers()
+    const adapter = new ScriptedAdapter([new LlmError('not available in region', 'REGION_UNSUPPORTED')])
+    ;({ ctx: context } = await harness(adapter))
+    const agent = await context.agentLoop.create(SessionId('retry-region'), { provider: 'mock', model: 'mock' })
+    const idle = waitForIdle(context, agent)
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await idle
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.session.snapshotEvents().some(event => event.type === 'llm/retry')).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('delegates when no final adapter served the failed request', async () => {
     const adapter = new ScriptedAdapter([textResponse('must not run')])
     const mounted = await harness(adapter, { mock: alwaysConfig() })

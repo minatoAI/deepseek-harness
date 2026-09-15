@@ -8,7 +8,7 @@
  * @module dsh-llm-deepseek/adapter
  */
 
-import { attributionHeaders, contentHasImage, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, ProviderRequestId, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, contentHasImage, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, isRegionUnsupportedError, LlmAdapter, LlmError, ProviderRequestId, QUOTA_EXCEEDED_CODE, REGION_UNSUPPORTED_CODE } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
   GenerateOptions,
@@ -95,7 +95,12 @@ function requestId(headers: Headers): ReturnType<typeof ProviderRequestId> | und
  * @returns the normalized harness error code.
  */
 export function httpErrorCode(status: number, error?: WireError['error']): string {
-  if (status === 401 || status === 403) return 'AUTH'
+  if (status === 401) return 'AUTH'
+  if (status === 403) {
+    const regionDetail = [error?.code, error?.type, error?.message].filter(Boolean).join(' ')
+    if (isRegionUnsupportedError(regionDetail)) return REGION_UNSUPPORTED_CODE
+    return 'AUTH'
+  }
   if (status === 413) return 'INVALID_REQUEST'
   const detail = [error?.code, error?.type, error?.message].filter(Boolean).join(' ')
   if (isQuotaExceededError(detail)) return QUOTA_EXCEEDED_CODE

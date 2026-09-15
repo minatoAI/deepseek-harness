@@ -146,6 +146,9 @@ describe('dsh-tool-team', () => {
     expect(leadPrompt).toContain('returns noProgress immediately')
     expect(leadPrompt).not.toContain('Your Team role')
     expect(renderContextSnapshot(leadAssembly)).toBe('')
+    expect(leadPrompt).toContain('block inside the turn with wait_agent')
+    const waitSchema = leadAssembly.tools.find(schema => schema.name === 'wait_agent')
+    expect(JSON.stringify(waitSchema)).toContain('keep the turn alive with this call')
 
     const spawned = await execute(ctx, lead, 'spawn_teammate', {
       name: 'tool-worker',
@@ -643,5 +646,118 @@ describe('dsh-tool-team', () => {
     const childId = spawnedChildId(result)
     await vi.waitFor(() => { expect(ctx.agents.get(childId)).toBeUndefined() }, { timeout: 5_000 })
     expect(ctx.agentTeams.listMembers(lead)[1]).toMatchObject({ provider: 'team-fresh' })
+  })
+
+  it('trims global preset tools per teammate while keeping Team collaboration tools', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    for (const name of ['search-docs', 'write-code']) {
+      ctx.tools.register(defineContentToolFixture({
+        name,
+        description: `${name} fixture`,
+        parameters: {},
+        async execute() { return [{ type: 'text', text: name }] },
+      }))
+    }
+    expect(ctx.tools.get('search-docs', lead)).toBeDefined()
+    expect(ctx.tools.get('write-code', lead)).toBeDefined()
+
+    const spawned = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'researcher',
+      description: 'search only',
+      prompt: 'stay available',
+      tool_filter: { allow: ['search-docs'] },
+    })
+    expect(spawned.isError).toBe(false)
+    const child = await waitRunning(ctx, spawnedChildId(spawned))
+
+    expect(ctx.tools.get('search-docs', child)).toBeDefined()
+    expect(ctx.tools.get('write-code', child)).toBeUndefined()
+    expect(ctx.tools.get('send_message', child)).toBeDefined()
+    expect(ctx.tools.get('team_task_list', child)).toBeDefined()
+    expect(ctx.tools.get('search-docs', lead)).toBeDefined()
+    expect(ctx.tools.get('write-code', lead)).toBeDefined()
+
+    await execute(ctx, lead, 'interrupt_agent', { target: 'researcher' })
+    await waitNoAgent(ctx, child.id)
+  })
+
+  it('rejects an empty tool_filter without reserving the teammate name', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const rejected = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'empty-filter',
+      description: 'empty filter',
+      prompt: 'stay available',
+      tool_filter: {},
+    })
+    expect(rejected.isError).toBe(true)
+    expect(text(rejected)).toContain('neither allow nor deny')
+    expect(ctx.agentTeams.listMembers(lead).map(member => member.name)).toEqual(['lead'])
+  })
+
+  it('shadows the inherited persona per teammate without touching the Lead', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const spawned = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'scout',
+      description: 'terse scout',
+      prompt: 'stay available',
+      persona: 'You are a scout. Report tersely.',
+    })
+    expect(spawned.isError).toBe(false)
+    const child = await waitRunning(ctx, spawnedChildId(spawned))
+
+    expect(renderPrompt(await assembly(ctx, child))).toContain('You are a scout. Report tersely.')
+    expect(child.session.deriveMessages().some(message => message.content.some(block =>
+      block.type === 'text' && block.text === '<system-reminder>\nYou are teammate "scout".\n</system-reminder>\n\n'))).toBe(true)
+    expect(renderPrompt(await assembly(ctx, lead))).not.toContain('You are a scout. Report tersely.')
+
+    await execute(ctx, lead, 'interrupt_agent', { target: 'scout' })
+    await waitNoAgent(ctx, child.id)
+  })
+
+  it('rejects a blank persona without reserving the teammate name', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const rejected = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'blank-persona',
+      description: 'blank persona',
+      prompt: 'stay available',
+      persona: '   ',
+    })
+    expect(rejected.isError).toBe(true)
+    expect(text(rejected)).toContain('non-empty')
+    expect(ctx.agentTeams.listMembers(lead).map(member => member.name)).toEqual(['lead'])
+  })
+
+  it('rejects scoped Team tool names with a removal hint without reserving the name', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    const rejected = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'scoped-filter',
+      description: 'scoped names',
+      prompt: 'stay available',
+      tool_filter: { deny: ['team_task_list', 'send_message'] },
+    })
+    expect(rejected.isError).toBe(true)
+    expect(text(rejected)).toContain('scoped tools "team_task_list", "send_message"')
+    expect(text(rejected)).toContain('remove them from tool_filter')
+    expect(ctx.agentTeams.listMembers(lead).map(member => member.name)).toEqual(['lead'])
+  })
+
+  it('rejects unknown global tool names with the known list without reserving the name', async () => {
+    const { ctx, lead } = await setup(['hang'])
+    ctx.tools.register(defineContentToolFixture({
+      name: 'search-docs',
+      description: 'search-docs fixture',
+      parameters: {},
+      async execute() { return [{ type: 'text', text: 'search-docs' }] },
+    }))
+    const rejected = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'ghost-filter',
+      description: 'unknown names',
+      prompt: 'stay available',
+      tool_filter: { allow: ['search-docs', 'ghost-tool'] },
+    })
+    expect(rejected.isError).toBe(true)
+    expect(text(rejected)).toContain('unknown global tools "ghost-tool"')
+    expect(text(rejected)).toContain('search-docs')
+    expect(ctx.agentTeams.listMembers(lead).map(member => member.name)).toEqual(['lead'])
   })
 })

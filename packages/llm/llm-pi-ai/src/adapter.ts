@@ -59,8 +59,10 @@ import type {
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
-import { toPiContext } from './context.ts'
-import { toStreamChunks } from './stream.ts'
+import { piContextImageBytes, toPiContext } from './context.ts'
+import { formatImageMegabytes, nextDegradedImageBudget, shouldDegradeImages } from './image-degrade.ts'
+import { classifyPiAiError, toStreamChunks } from './stream.ts'
+import { takeTransportCause } from './transport-cause.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
 interface PiAiSnapshot {
@@ -154,6 +156,21 @@ function describableReasoningLevel(
     : undefined
 }
 
+/**
+ * Lowest thinking level for auxiliary title calls.
+ *
+ * `getSupportedThinkingLevels` returns escalation order, so the first entry
+ * is the cheapest: `off` when the model offers it, otherwise the smallest
+ * thinking level (for example `low` on a `{ low, high }` model). Title calls
+ * carry a small output budget, so the budget serves visible title text
+ * instead of a reasoning trace.
+ * @param model - the resolved model descriptor.
+ * @returns the cheapest supported level, or undefined when none is reported.
+ */
+function titleReasoningLevel(model: Model<Api>): ModelThinkingLevel | undefined {
+  return getSupportedThinkingLevels(model)[0]
+}
+
 /** Validate an explicit Harness/profile effort without invoking pi-ai's clamp. */
 function resolveReasoningLevel(
   model: Model<Api>,
@@ -201,14 +218,47 @@ function reasoningInfo(
   }
 }
 
-/** Merge deployment headers while removing case-insensitive attribution collisions. */
-function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
+/** Session-affinity header OpenCode Go requires for routing and optimization. */
+export const OPENCODE_SESSION_HEADER = 'x-opencode-session'
+
+/**
+ * Whether one route serves OpenCode managed inference and therefore carries
+ * the session-affinity header. Catalog routes match by key; hand-declared
+ * gateways pointing at the managed endpoint match by address, so a renamed
+ * route keeps affinity without copying the catalog.
+ * @param provider - harness route key.
+ * @param baseURL - configured endpoint override, when one exists.
+ * @returns true when requests on this route carry {@link OPENCODE_SESSION_HEADER}.
+ */
+export function needsOpencodeSession(provider: string, baseURL?: string): boolean {
+  if (provider === 'opencode' || provider === 'opencode-go') return true
+  return (baseURL ?? '').toLowerCase().includes('opencode.ai')
+}
+
+/**
+ * Merge deployment headers, automatic OpenCode session affinity, and Harness
+ * attribution. An explicit deployment header wins over the automatic value
+ * (compared case-insensitively); attribution still wins over both.
+ * @param headers - deployment-owned profile headers.
+ * @param sessionId - stable per-conversation id stamped by the loop, when one exists.
+ * @param route - route facts deciding whether affinity applies.
+ * @returns headers to hand to pi-ai for one request.
+ */
+function requestHeaders(
+  headers: Readonly<Record<string, string>> | undefined,
+  sessionId?: string,
+  route?: Pick<ResolvedPiAiProviderProfile, 'provider' | 'baseURL'>,
+): Record<string, string> {
   const attribution = attributionHeaders()
   const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
-  return {
+  const merged: Record<string, string> = {
     ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
-    ...attribution,
   }
+  if (sessionId !== undefined && route !== undefined && needsOpencodeSession(route.provider, route.baseURL)) {
+    const hasExplicit = Object.keys(headers ?? {}).some(name => name.toLowerCase() === OPENCODE_SESSION_HEADER)
+    if (!hasExplicit) merged[OPENCODE_SESSION_HEADER] = sessionId
+  }
+  return { ...merged, ...attribution }
 }
 
 /**
@@ -300,7 +350,10 @@ export class PiAiAdapter extends LlmAdapter {
   private modelInfo(snapshot: PiAiSnapshot, provider: string, model: string): LlmResolvedModelInfo {
     const profile = this.profileOf(snapshot, provider)
     const resolvedModel = this.modelOf(snapshot, provider, model)
-    const defaultLevel = describableReasoningLevel(resolvedModel, profile.reasoning)
+    const defaultLevel = describableReasoningLevel(
+      resolvedModel,
+      profile.configuredDefaultEfforts.get(model) ?? profile.reasoning,
+    )
     // Only a cap the deployment configured is a request default; the
     // catalog's `maxTokens` sizes the model and stops there.
     const configuredMaxTokens = profile.configuredMaxTokens.get(model)
@@ -341,9 +394,20 @@ export class PiAiAdapter extends LlmAdapter {
     // the one it started with and the next call picks up the new one.
     const profile = this.profileOf(snapshot, options.provider)
     const model = this.modelOf(snapshot, options.provider, options.model)
+    // Auxiliary title calls carry a small output budget; use the cheapest
+    // supported thinking level so the budget serves visible title text.
+    // Models without `off` fall back to their lowest thinking level rather
+    // than the profile default, and title acceptance still rejects an
+    // over-thinking result through the shared fallback.
+    const titleEffort = options.purpose === 'session-title'
+      ? titleReasoningLevel(model)
+      : undefined
     const reasoning = resolveReasoningLevel(
       model,
-      options.reasoningEffort ?? profile.reasoning,
+      titleEffort
+        ?? options.reasoningEffort
+        ?? profile.configuredDefaultEfforts.get(options.model)
+        ?? profile.reasoning,
     )
     const apiKey = await this.config.resolveApiKey(options.provider, profile)
 
@@ -366,47 +430,106 @@ export class PiAiAdapter extends LlmAdapter {
       const onReplayDegrade = (reason: string): void => {
         this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })
       }
-      const context = attachments === undefined
-        ? toPiContext(options, undefined, onReplayDegrade)
-        : await toPiContext({ ...options, signal: watchdog.signal }, {
-          attachments,
-          resolveImageAccess: ref => this.config.resolveImageAccess?.(attachments, ref),
-          maxRequestImageBytes: profile.maxRequestImageBytes,
-          requestImagePolicy: {
-            maxPixels: profile.requestImagePixelBudget,
-            maxBytes: profile.requestImageMaxBytes,
-          },
-        }, onReplayDegrade)
-      const events = snapshot.models.streamSimple(model, context, {
-        ...profileOptions(profile, reasoning, apiKey),
-        ...options.temperature === undefined ? {} : { temperature: options.temperature },
-        ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
-        ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
-        signal: watchdog.signal,
-        // Profile headers are deployment-owned; attribution names are
-        // Harness-owned and therefore win collisions.
-        headers: requestHeaders(profile.headers),
-      })
-      const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
-      let exhausted = false
-      try {
-        while (true) {
-          const result = await watchdog.next(iterator)
-          const timeout = timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT')
-          if (timeout !== undefined) throw timeout
-          if (result.done) {
+      let maxRequestImageBytes = profile.maxRequestImageBytes
+      let degradedRounds = 0
+      while (true) {
+        const attemptStart = Date.now()
+        // Degradation only shrinks the payload, so the first attempt is the
+        // only one that can newly exceed the warn bound: later attempts omit it.
+        const warnOnce = degradedRounds === 0 ? { imagePayloadWarnBytes: profile.imagePayloadWarnBytes } : {}
+        const context = attachments === undefined
+          ? toPiContext(options, undefined, onReplayDegrade)
+          : await toPiContext({ ...options, signal: watchdog.signal }, {
+            attachments,
+            resolveImageAccess: ref => this.config.resolveImageAccess?.(attachments, ref),
+            maxRequestImageBytes,
+            requestImagePolicy: {
+              maxPixels: profile.requestImagePixelBudget,
+              maxBytes: profile.requestImageMaxBytes,
+            },
+            ...warnOnce,
+          }, onReplayDegrade)
+        const imageBytes = attachments === undefined ? 0 : piContextImageBytes(context)
+        const events = snapshot.models.streamSimple(model, context, {
+          ...profileOptions(profile, reasoning, apiKey),
+          ...options.temperature === undefined ? {} : { temperature: options.temperature },
+          ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
+          ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
+          signal: watchdog.signal,
+          // Profile headers are deployment-owned; attribution names are
+          // Harness-owned and therefore win collisions. The OpenCode session
+          // header is request-owned: the loop-stamped session id, unless the
+          // deployment named the same header explicitly.
+          headers: requestHeaders(
+            profile.headers,
+            options.sessionId === undefined ? undefined : String(options.sessionId),
+            profile,
+          ),
+        })
+        const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
+        let exhausted = false
+        try {
+          const buffered: StreamChunk[] = []
+          let sawContent = false
+          while (true) {
+            const result = await watchdog.next(iterator)
+            const timeout = timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT')
+            if (timeout !== undefined) throw timeout
+            /* v8 ignore next -- toStreamChunks yields a terminal chunk or throws; a bare completion cannot reach here. */
+            if (result.done === true) throw new LlmError('pi-ai event stream ended without done/error', 'STREAM_CLOSED')
+            const chunk = result.value
+            if (chunk.type === 'usage') {
+              buffered.push(chunk)
+              continue
+            }
+            // Usage buffered ahead of the terminal chunk replays in wire order.
+            for (const pending of buffered) yield pending
+            buffered.length = 0
+            if (chunk.type !== 'finish') {
+              sawContent = true
+              yield chunk
+              continue
+            }
+            if (chunk.reason.kind !== 'error'
+              || timeoutOf(watchdog.signal, 'LLM_STREAM_IDLE_TIMEOUT') !== undefined
+              || options.signal?.aborted === true
+              || sawContent) {
+              yield chunk
+              exhausted = true
+              return
+            }
+            const failure = chunk.reason.failure
+            const effectiveCode = classifyPiAiError(failure.message, takeTransportCause())
+            const elapsedMs = Date.now() - attemptStart
+            if (!shouldDegradeImages({
+              code: effectiveCode,
+              message: failure.message,
+              imageBytes,
+              degradeMinBytes: profile.imagePayloadDegradeMinBytes,
+              elapsedMs,
+              fastFailMs: profile.imageDegradeFastFailMs,
+              degradedRounds,
+              maxRounds: profile.maxImageDegradeRounds,
+            })) {
+              yield chunk
+              exhausted = true
+              return
+            }
+            const nextBound = nextDegradedImageBudget(imageBytes)
+            degradedRounds += 1
+            onReplayDegrade(`degraded image payload after fast reset round ${degradedRounds}/${profile.maxImageDegradeRounds} (${formatImageMegabytes(imageBytes)}→budget ${formatImageMegabytes(nextBound)})`)
+            maxRequestImageBytes = nextBound
             exhausted = true
-            return
+            break
           }
-          yield result.value
-        }
-      } finally {
-        if (!exhausted) {
-          consumer.abort('pi-ai stream consumer stopped')
-          try {
-            await iterator.return(undefined)
-          } catch (_abortedSdkTeardown) {
-            // The stable signal already owns SDK termination; return-time abort cannot add an outcome.
+        } finally {
+          if (!exhausted) {
+            consumer.abort('pi-ai stream consumer stopped')
+            try {
+              await iterator.return(undefined)
+            } catch (_abortedSdkTeardown) {
+              // The stable signal already owns SDK termination; return-time abort cannot add an outcome.
+            }
           }
         }
       }
