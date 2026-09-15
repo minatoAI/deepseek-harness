@@ -2750,7 +2750,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'register(definition: ToolDefinition): () => void',
-        description: 'Register globally or in the calling agent scope. Scoped tools shadow globals; duplicates within one layer and the reserved `run_code` name fail. `parameters` is normalized at registration: a complete JSON Schema passes through byte-for-byte (with a structural validation), a defineTool-style property table is converted with a warning, and anything else throws a tool-named error — so a malformed schema fails here instead of at the first model call.',
+        description: 'Register globally or in the calling agent scope. Scoped tools shadow globals; duplicates within one layer and the reserved `run_code` name fail. `parameters` is normalized at registration: a complete JSON Schema passes through byte-for-byte (with a structural validation; an object root may compose `oneOf`/`anyOf` branches instead of declaring `properties`), a defineTool-style property table is converted with a warning, and anything else throws a tool-named error — so a malformed schema fails here instead of at the first model call.',
         parameters: [{ name: 'definition', description: 'tool schema, execution, and optional finalization/presentation callbacks.' }],
         returns: 'the exact disposer that unregisters the tool.',
       },
