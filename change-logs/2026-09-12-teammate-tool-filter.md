@@ -1,9 +1,9 @@
 # 创建 teammate 时可裁剪其全局工具集
 
 - **完成时间**：2026-09-12
-- **分支**：feat/teammate-tool-filter（基于 master 778b1d5fca）
+- **分支**：feat/teammate-tool-filter（基于当时的 master）
 - **Commit**：
-  - 4f5b03c210c3e1a6e666a529de34422072d50026 — feat(agent-team): per-teammate tool filter for spawn_teammate
+  - feat(agent-team): per-teammate tool filter for spawn_teammate
   - （记录文件、索引与根 README 计数见本分支后续 `docs(change-logs)` 提交，属记账提交，不列入实质改动。）
 
 ## 摘要（Abstract）

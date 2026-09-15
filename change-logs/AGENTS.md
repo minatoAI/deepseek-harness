@@ -11,7 +11,8 @@
   过程与真实验证结果，不得虚构。
 - **中文撰写**：记录默认用简体中文，术语可保留英文原文。
 - **只增不改**：已发布的记录文件不修改；如需更正，在该文件末尾追加
-  "更正"小节。
+  "更正"小节。引用格式不合门禁时就地改写该引用（例如去掉历史遗留的
+  commit 标识符）。
 
 ## 文件命名
 
@@ -30,7 +31,8 @@ YYYY-MM-DD-<作用-slug>.md
 每个记录文件按以下小节组织：
 
 1. **标题**：`# <改动作用>`，一句话概括本次改动。
-2. **元信息**：完成时间、分支、本次改动包含的全部 commit（hash + 主题行）。
+2. **元信息**：完成时间、分支、本次改动包含的全部提交（按时间顺序列出
+   主题行）。
 3. **摘要（Abstract）**：一段话概括改了什么、解决什么问题、结果如何。
 4. **背景（Background）**：为什么做这次改动（问题、来源、约束）。
 5. **改动过程（Process）**：分步描述实现过程、关键问题与解法、涉及的主要
@@ -39,10 +41,13 @@ YYYY-MM-DD-<作用-slug>.md
 7. **验证（Verification）**：实际运行的验证命令与结果摘要，以及可复现的
    命令。
 
-## Commit 列表
+## 提交列表
 
-记录文件必须列出本次改动包含的全部 commit hash（完整 40 位或可唯一识别
-的前缀），按时间顺序，附主题行。
+记录文件按时间顺序列出本次改动包含的全部提交主题行。`verify-repository-references`
+拒绝 maintained 文件中的仓库 commit 标识符；历史证据使用发行 tag 与 PR、运行或
+job 标识，当前仓库文件使用相对链接（依据
+[Maintained repository references](../.agents/notes/implemented/process/2026-09-12-maintained-repository-references.md)
+与 `docs/AGENTS.md`）。
 
 ## 目录索引（README.md）
 
@@ -59,14 +64,15 @@ YYYY-MM-DD-<作用-slug>.md
 - 记录文件、索引与 README 计数改动同属一个 commit，message 使用仓库的
   conventional 风格（如 `docs(change-logs): ...`）。
 - 默认不推送；只有用户明确要求时才 `git push`。
-- 提交前运行：`pnpm run verify-translation-pairing` 与
-  `pnpm run verify-md-links`。
+- 提交前运行：`pnpm run verify-translation-pairing`、
+  `pnpm run verify-md-links` 与 `pnpm run verify-repository-references`。
 
 ## 检查清单（每次新增记录时）
 
 - [ ] 文件名符合 `YYYY-MM-DD-<slug>.md`
-- [ ] 包含 commit hash 列表
+- [ ] 包含提交主题行列表，无仓库 commit 标识符
 - [ ] 小节齐全：元信息 / 摘要 / 背景 / 改动过程 / 总结 / 验证
 - [ ] 索引 `README.md` 已更新（时间倒序）
 - [ ] 根 README 计数已更新且配对 hash 已录制
-- [ ] 门禁通过：`verify-translation-pairing` / `verify-md-links`
+- [ ] 门禁通过：`verify-translation-pairing` / `verify-md-links` /
+      `verify-repository-references`

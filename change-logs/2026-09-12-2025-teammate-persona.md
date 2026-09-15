@@ -1,9 +1,9 @@
 # 创建 teammate 时可透传独立 persona
 
 - **完成时间**：2026-09-12（UTC）
-- **分支**：feat/teammate-tool-filter（基于 master 778b1d5fca）
+- **分支**：feat/teammate-tool-filter（基于当时的 master）
 - **Commit**：
-  - ccabcd48f50a13902f70e0817948f304b0941d68 — feat(agent-team): per-teammate persona shadowing for spawn_teammate
+  - feat(agent-team): per-teammate persona shadowing for spawn_teammate
   - （记录文件、索引与根 README 计数见本分支后续 `docs(change-logs)` 提交，属记账提交，不列入实质改动。）
 
 ## 摘要（Abstract）

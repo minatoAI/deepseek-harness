@@ -1,9 +1,9 @@
 # 接受 `reasoningEfforts.default` 作为保留选择键
 
 - **完成时间**：2026-08-17
-- **分支**：`improvement/tool-schema-contract`（基于 `master@47f9438`，其上已有工具 schema 契约与 change-logs 规范）
+- **分支**：`improvement/tool-schema-contract`（其上已有工具 schema 契约与 change-logs 规范）
 - **Commit**：
-  - `eaccaea6f3b2337f0b375cec58b718c1db69a2e0` — fix(llm-pi-ai): accept reasoningEfforts.default as a reserved selector
+  - fix(llm-pi-ai): accept reasoningEfforts.default as a reserved selector
 
 ## 摘要（Abstract）
 

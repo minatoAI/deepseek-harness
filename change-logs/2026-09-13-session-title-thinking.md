@@ -1,10 +1,10 @@
 # 会话标题在思考模型上稳定生成：放大预算并在标题请求中关闭思考
 
 - **完成时间**：2026-09-13
-- **分支**：feat/teammate-tool-filter（基于 master@778b1d5fca，其上另有 teammate 系列提交，本改动仅含下列两笔）
+- **分支**：feat/teammate-tool-filter（其上另有 teammate 系列提交，本改动仅含下列两笔）
 - **Commit**：
-  - 411a8a62a0595ad2e3029e791c82f665a103d518 — fix(session-title): enlarge title output budget for thinking models
-  - bc9d218072d3f1c09e59d39370a80fa5f42be63e — fix(llm-pi-ai): disable thinking for session-title when off is offered
+  - fix(session-title): enlarge title output budget for thinking models
+  - fix(llm-pi-ai): disable thinking for session-title when off is offered
   - （记录文件、索引与根 README 计数见本分支后续 `docs(change-logs)` 提交，属记账提交，不列入实质改动。）
 
 ## 摘要（Abstract）

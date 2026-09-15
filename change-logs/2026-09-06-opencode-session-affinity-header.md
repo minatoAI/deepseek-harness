@@ -1,9 +1,9 @@
 # OpenCode 路由自动携带 x-opencode-session 会话亲和性
 
 - **完成时间**：2026-09-06
-- **分支**：master（基于 807ee7f74f9c4bc313decd3456bef6ef483c41eb）
+- **分支**：master（基于当时的 origin/master）
 - **Commit**：
-  - 53dfb7aa473703ddcbfbff97b6aa08635203254f — feat(llm-pi-ai): send x-opencode-session affinity on OpenCode routes
+  - feat(llm-pi-ai): send x-opencode-session affinity on OpenCode routes
 
 ## 摘要（Abstract）
 

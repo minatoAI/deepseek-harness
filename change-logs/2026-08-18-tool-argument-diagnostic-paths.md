@@ -1,9 +1,9 @@
 # 为工具参数校验错误补充完整归属路径
 
 - **完成时间**：2026-08-18
-- **分支**：`master`（基于 `origin/master@2314e10c`）
+- **分支**：`master`（基于当时的 `origin/master`）
 - **Commit**：
-  - `45461434c76d987f6938570773d840834d3ff276` — fix(tools): qualify argument validation paths
+  - fix(tools): qualify argument validation paths
 
 ## 摘要（Abstract）
 

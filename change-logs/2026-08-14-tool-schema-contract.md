@@ -1,11 +1,11 @@
 # 工具参数 Schema 契约校验与 `dsh plugin check` 本地校验
 
 - **完成时间**：2026-08-14
-- **分支**：`improvement/tool-schema-contract`（基于 `master@47f9438`）
+- **分支**：`improvement/tool-schema-contract`
 - **Commit**：
-  - `7c49da9c487f7844c86c78138ea2b41b0e693133` — feat(tools): validate and normalize parameters at tools.register
-  - `4c3bd215c1c2fea066dae2a5ff2216fb2a186444` — feat(cli): add dsh plugin check for local bundle validation
-  - `709a0605c93bfb15973585d9f0f9236fa4d0a7cf` — docs(bundle): add bundle development checklist and document dsh plugin check
+  - feat(tools): validate and normalize parameters at tools.register
+  - feat(cli): add dsh plugin check for local bundle validation
+  - docs(bundle): add bundle development checklist and document dsh plugin check
 
 ## 摘要（Abstract）
 

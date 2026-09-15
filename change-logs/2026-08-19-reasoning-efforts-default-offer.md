@@ -1,9 +1,9 @@
 # `reasoningEfforts.default` 点名的档位加入模型提供的档位集合
 
 - **完成时间**：2026-08-19
-- **分支**：`master`（基于 `cad80bb7f7`）
+- **分支**：`master`（基于当时的 master）
 - **Commit**：
-  - `6ade53f23b` — fix(llm-pi-ai): reasoningEfforts.default level joins the model's offer
+  - fix(llm-pi-ai): reasoningEfforts.default level joins the model's offer
 
 ## 摘要（Abstract）
 

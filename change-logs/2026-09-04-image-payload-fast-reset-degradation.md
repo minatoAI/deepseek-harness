@@ -1,10 +1,10 @@
 # 大图片请求体被网关快速重置时自动降级重试
 
 - **完成时间**：2026-09-04
-- **分支**：`master`（基于 `a3126ac15a`）
+- **分支**：`master`（基于当时的 master）
 - **Commit**：
-  - `25e20ace19` — fix(llm-pi-ai): degrade image payload after fast gateway reset
-  - `5aeb9cec98` — fix(llm-pi-ai): avoid delete on required global flag in spec
+  - fix(llm-pi-ai): degrade image payload after fast gateway reset
+  - fix(llm-pi-ai): avoid delete on required global flag in spec
 
 ## 摘要（Abstract）
 
