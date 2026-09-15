@@ -37,7 +37,7 @@ The plugin accepts the complete required [shared LLM configuration](../session-t
 
 ### Failures and recovery
 
-A generation that fails — a missing route before any main request, input over `maxInputBytes`, timeout, cancellation, or invalid model output — warns and keeps the current title; only an explicit `refresh()` retries. Automatic work adds no tokens and no latency to the main agent request.
+A generation that fails — a missing route before any main request, a `maxInputBytes` budget smaller than the empty framing, timeout, cancellation, or invalid model output — warns and keeps the current title; only an explicit `refresh()` retries. Oversized first messages are truncated to a leading prefix instead of failing. Automatic work adds no tokens and no latency to the main agent request.
 
 -----
 
@@ -86,7 +86,7 @@ Read these pages when the provider contract is not enough. They move from the sh
 
 #### What the model sees
 
-The title model receives the shared title instruction and a JSON array containing only the first eligible human message. Later prompts and inherited fork history do not trigger another automatic call.
+The title model receives the shared title instruction and a JSON array containing only the first eligible human message, truncated to a leading prefix when it exceeds `maxInputBytes`. Later prompts and inherited fork history do not trigger another automatic call.
 
 #### Token effect
 

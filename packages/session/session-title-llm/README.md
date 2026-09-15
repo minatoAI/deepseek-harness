@@ -33,7 +33,7 @@ A provider plugin calls `registerSessionTitleLlmProvider(ctx, config, id, automa
 
 ### Route and failure contract
 
-`provider` and `model` overrides are optional but must be supplied together as non-empty strings. Without that pair, the helper uses the exact provider/model route captured from the current session's logged `request/header`, so an explicit refresh before any route exists needs overrides. The helper measures the final JSON-framed user prompt against `maxInputBytes` before logging or dispatch instead of truncating it, and rechecks timeout and caller cancellation while consuming the stream and after it completes, so a late successful result cannot be accepted even if an interceptor or adapter ignores abort. Malformed or empty output, tool calls, and non-stop finish reasons reject; the session-title service decides whether that rejection is an automatic warning or an explicit caller failure.
+`provider` and `model` overrides are optional but must be supplied together as non-empty strings. Without that pair, the helper uses the exact provider/model route captured from the current session's logged `request/header`, so an explicit refresh before any route exists needs overrides. The helper fits the final JSON-framed user prompt into `maxInputBytes` before logging or dispatch (a single message keeps its leading prefix; several messages keep the first and the last with the middle dropped, truncating prefixes as needed), and rechecks timeout and caller cancellation while consuming the stream and after it completes, so a late successful result cannot be accepted even if an interceptor or adapter ignores abort. Only a budget smaller than the empty framing still rejects. Malformed or empty output, tool calls, and non-stop finish reasons reject; the session-title service decides whether that rejection is an automatic warning or an explicit caller failure.
 
 ### Configuration
 
@@ -45,7 +45,7 @@ Every field is required except the paired route override; there are no library d
 |---|---|---|
 | `targetWords` | required | Target word count for non-CJK titles |
 | `targetCjkCharacters` | required | Target character count for Chinese, Japanese, or Korean titles |
-| `maxInputBytes` | required | UTF-8 byte ceiling for the final JSON-framed user prompt |
+| `maxInputBytes` | required | Truncation budget in UTF-8 bytes for the final JSON-framed user prompt |
 | `maxOutputTokens` | required | Auxiliary generation token cap |
 | `timeoutMs` | required | End-to-end deadline within the runtime timer limit |
 | `provider`, `model` | optional | Explicit route; both or neither |
@@ -72,7 +72,7 @@ One shared policy so provider plugins cannot drift: config validation, route res
 
 ### Request flow
 
-A generation validates the config once at registration; each revision frames the selected messages as JSON, measures the framed prompt's UTF-8 bytes against `maxInputBytes`, resolves the route (the explicit pair or the logged `request/header`), appends a log-only `session/title-llm-request` event carrying the exact dispatchable request, then streams through `ctx.llm` under a composed timeout and cancellation deadline. The dispatched envelope carries `purpose: 'session-title'` and deliberately lacks the agent loop's process-local request identity; the DeepSeek adapter maps that purpose to thinking-disabled so the small output budget is reserved for visible title text, and other adapters own their purpose-specific behavior. Output assembles into text blocks only; tool calls, malformed or empty output, and non-stop finish reasons reject, and a later model failure leaves the request record intact.
+A generation validates the config once at registration; each revision frames the selected messages as JSON, fits the framed prompt into `maxInputBytes` (unchanged when it fits, otherwise a single leading prefix or the truncated first/last pair), resolves the route (the explicit pair or the logged `request/header`), appends a log-only `session/title-llm-request` event carrying the exact dispatchable request, then streams through `ctx.llm` under a composed timeout and cancellation deadline. The dispatched envelope carries `purpose: 'session-title'` and deliberately lacks the agent loop's process-local request identity; the DeepSeek adapter maps that purpose to thinking-disabled so the small output budget is reserved for visible title text, and other adapters own their purpose-specific behavior. Output assembles into text blocks only; tool calls, malformed or empty output, and non-stop finish reasons reject, and a later model failure leaves the request record intact.
 
 </details>
 
@@ -98,7 +98,7 @@ Read these pages when the generation policy is not enough. They move from the se
 
 #### What the model sees
 
-The title model receives a fixed system instruction to return one concise unadorned title in the input language, including the configured word and CJK-character targets. Its one user message contains a JSON array of the exact selected human messages and their seqs.
+The title model receives a fixed system instruction to return one concise unadorned title in the input language, including the configured word and CJK-character targets. Its one user message contains a JSON array of the fitted human messages and their seqs: the full selection when it fits, otherwise a single leading prefix or the first/last pair with the middle dropped.
 
 #### Token effect
 
@@ -116,7 +116,7 @@ No main-request invalidation. Auxiliary cache reuse is provider-specific; the fi
 These limits define the accepted generation shapes. They are current package constraints.
 
 - **Text output only** — the helper accepts text output and rejects tool calls; structured-output adapters and provider-specific prompt variants are not exposed.
-- **Whole-prompt byte ceiling** — it enforces a byte ceiling for the whole framed user prompt rather than clipping individual messages or applying a retention policy.
+- **Prefix/head-tail truncation** — oversized input keeps a single leading prefix or the first/last pair with the middle dropped; truncated prefixes carry no ellipsis marker.
 
 <a id="dev-note"></a>
 ### Dev Note
