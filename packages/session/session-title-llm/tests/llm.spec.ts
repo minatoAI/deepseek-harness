@@ -2,7 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import LlmRuntime, { createUserMessage, ToolCallId, isAgentLoopRequest, LlmAdapter  } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
 import type { SessionTitleProviderRequest } from '@deepseek-ai/dsh-session-title'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
@@ -202,6 +202,62 @@ describe('generateSessionTitleWithLlm', () => {
       provider: 'explicit-route',
       model: 'explicit-model',
     })
+  })
+
+  it('truncates a single oversized message prefix instead of rejecting', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(LlmRuntime)
+    const adapter = new RecordingAdapter(SCRIPT)
+    ctx.llm.registerAdapter(['current-route'], adapter)
+    const providerRequest = request(ctx)
+    const longText = `背景${'我需要用第一性原理整理思考记录。'.repeat(200)}尾`
+    const single = { seq: providerRequest.messages[0]!.seq, text: longText }
+    const config = resolveSessionTitleLlmConfig({ ...CONFIG, maxInputBytes: 1_000 })
+
+    const result = await generateSessionTitleWithLlm(ctx, config, providerRequest, [single], TITLE_PROVIDER)
+
+    expect(adapter.requests).toHaveLength(1)
+    const prompt = adapter.requests[0]!.messages[0]?.content[0]
+    if (prompt?.type !== 'text') throw new Error('expected title prompt text')
+    expect(Buffer.byteLength(prompt.text, 'utf8')).toBeLessThanOrEqual(1_000)
+    const dispatched = (JSON.parse(prompt.text.split('\n')[1]!) as Array<{ text: string }>)[0]!.text
+    expect(dispatched.length).toBeGreaterThan(0)
+    expect(dispatched.length).toBeLessThan(longText.length)
+    expect(longText.startsWith(dispatched)).toBe(true)
+    expect(result.messageSeqs).toEqual([single.seq])
+    const logged = providerRequest.session.snapshotEvents()
+      .find(event => event.type === 'session/title-llm-request')
+    expect(logged?.data.messageSeqs).toEqual([single.seq])
+  })
+
+  it('keeps the first and the last messages for several oversized inputs and drops the middle', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(LlmRuntime)
+    const adapter = new RecordingAdapter(SCRIPT)
+    ctx.llm.registerAdapter(['current-route'], adapter)
+    const providerRequest = request(ctx)
+    const [first, second] = providerRequest.messages
+    if (first === undefined || second === undefined) throw new Error('expected two selected messages')
+    const head = { seq: first.seq, text: `head-background-${'A'.repeat(600)}` }
+    const middle = { seq: SessionSeq(999_001), text: `middle-${'B'.repeat(600)}` }
+    const tail = { seq: second.seq, text: `tail-latest-${'C'.repeat(600)}` }
+    const config = resolveSessionTitleLlmConfig({ ...CONFIG, maxInputBytes: 1_000 })
+
+    const result = await generateSessionTitleWithLlm(ctx, config, providerRequest, [head, middle, tail], TITLE_PROVIDER)
+
+    expect(adapter.requests).toHaveLength(1)
+    const prompt = adapter.requests[0]!.messages[0]?.content[0]
+    if (prompt?.type !== 'text') throw new Error('expected title prompt text')
+    expect(Buffer.byteLength(prompt.text, 'utf8')).toBeLessThanOrEqual(1_000)
+    expect(prompt.text).toContain('head-background-')
+    expect(prompt.text).toContain('tail-latest-')
+    expect(prompt.text).not.toContain('middle-')
+    expect(result.messageSeqs).toEqual([head.seq, tail.seq])
+    const logged = providerRequest.session.snapshotEvents()
+      .find(event => event.type === 'session/title-llm-request')
+    expect(logged?.data.messageSeqs).toEqual([head.seq, tail.seq])
   })
 
   it('requires every deployment limit and a complete optional route pair', () => {

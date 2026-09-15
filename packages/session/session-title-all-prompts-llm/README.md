@@ -29,7 +29,7 @@ Mount this plugin beside the title service when a session should be retitled as 
 
 ### When titles are generated
 
-A new revision starts after each new eligible human prompt, including prompts in child sessions; the generation folds all eligible messages through the current revision, seeded history included. A newer revision aborts and supersedes older work, so a stale completion can never commit. An automatic failure — including input over `maxInputBytes`, which fails instead of truncating history — warns and keeps the prior title; `ctx.sessionTitle.refresh()` is the explicit retry.
+A new revision starts after each new eligible human prompt, including prompts in child sessions; the generation folds all eligible messages through the current revision, seeded history included. A newer revision aborts and supersedes older work, so a stale completion can never commit. Oversized input keeps the first and the last messages with the middle dropped (truncating prefixes as needed) so the title recalls the background and the latest update; an automatic failure warns and keeps the prior title; `ctx.sessionTitle.refresh()` is the explicit retry.
 
 ### Configuration
 
@@ -37,7 +37,7 @@ The plugin accepts the complete required [shared LLM configuration](../session-t
 
 ### Failures and recovery
 
-If the final framed aggregate prompt exceeds `maxInputBytes`, the request fails instead of truncating history; automatic use warns and keeps the prior title, and only an explicit `refresh()` retries. Automatic work adds no tokens and no latency to the main agent request.
+If the final framed aggregate prompt exceeds `maxInputBytes`, the request keeps the first/last pair with truncated prefixes instead of failing; only a budget smaller than the empty framing fails. Automatic use warns and keeps the prior title on failure, and only an explicit `refresh()` retries. Automatic work adds no tokens and no latency to the main agent request.
 
 -----
 
@@ -86,7 +86,7 @@ Read these pages when the provider contract is not enough. They move from the sh
 
 #### What the model sees
 
-The title model receives the shared title instruction and a JSON array of all eligible human messages through the current revision, in log order with exact seqs. Seeded history is included.
+The title model receives the shared title instruction and a JSON array of the fitted human messages through the current revision, in log order with exact seqs: all messages when they fit, otherwise the first and the last with the middle dropped. Seeded history is included.
 
 #### Token effect
 
@@ -103,7 +103,7 @@ No main-request invalidation. Auxiliary input grows or changes after each prompt
 
 These limits define how the provider treats long and heterogeneous sessions. They are current package constraints.
 
-- **No summarization-of-summaries** — input overflow retains the prior title; this provider has no summarization-of-summaries or retention policy for very long sessions.
+- **Head-tail retention** — oversized input keeps the first/last pair with truncated prefixes and no ellipsis marker; there is no summarization-of-summaries.
 - **Messages are treated equally** — it treats all eligible human messages alike and offers no weighting, filtering, or manual-title precedence.
 
 <a id="dev-note"></a>
