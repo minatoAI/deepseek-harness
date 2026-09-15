@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-14-session-title-input-truncation.md
+2026-09-14-session-title-input-truncation.md: 61925390744b8ff7012bb9dcc7984adf831c1f69
+2026-09-14-session-title-input-truncation.zh.md: 22c18b9aa7f10f400a9c839c78b1eff30d7931a3
