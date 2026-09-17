@@ -6,6 +6,7 @@
 
 ## 记录列表（按完成时间倒序）
 
+- **2026-09-18** — [收窄内置 Web 搜索禁用：只停 DeepSeek 搜索 provider](2026-09-18-disable-web-search-provider.md)：profile 补丁层改为只禁用 `web-search-deepseek`，搜索调用在发出请求前以 `WEB_PROVIDER_CONFIGURED_MISSING` 失败、额度零消耗，匿名抓取的 `web-fetch-http` 保留 `web_fetch`；补丁文件注释同步更正。
 - **2026-09-17** — [内置 Web Search 评测与禁用](2026-09-17-builtin-web-search-assessment.md)：扫描 519 个会话证实"用不了"源于凭证而非插件，与上游比对确认源码未改；查证官方文档确认服务端工具机制与成本结构，实测未命中缓存输入占账单 79.9% 且结构性不可优化；同查询对照显示来源质量不及 dsh-jina，据此在 profile 补丁层禁用整条 `web` 栈。
 - **2026-09-16** — [文档门禁恢复：改动记录引用格式与生成产物](2026-09-16-doc-gate-compliance.md)：9 条记录改用提交主题行、规范去掉 commit 标识符要求、重算 cordis 与 persistence 产物；doc-sync 的 6 项失败降为 1 项平台限制。
 - **2026-09-13** — [会话标题在思考模型上稳定生成](2026-09-13-session-title-thinking.md)：标题预算 64→256，pi-ai 标题请求在模型提供 `off` 档时关闭思考，无 `off` 的模型保持原默认。

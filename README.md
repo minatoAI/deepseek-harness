@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-**11 change(s) recorded — see [change-logs/](change-logs/README.md) for details.**
+**12 change(s) recorded — see [change-logs/](change-logs/README.md) for details.**
 
 DeepSeek Harness (`dsh`) is an open-source agent harness developed by [DeepSeek AI](https://deepseek.com).
 
