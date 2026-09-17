@@ -126,7 +126,7 @@ describe('normalizeRegisteredParameters', () => {
     expect(catalog.length).toBeGreaterThan(0)
     for (const entry of catalog) {
       for (const schema of entry.schemas) {
-        const parameters = schema.parameters as Record<string, unknown>
+        const parameters = schema.parameters
         expect(
           normalizeRegisteredParameters(schema.name, parameters),
           `normalization must not rewrite shipped tool ${schema.name}`,

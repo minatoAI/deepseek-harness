@@ -708,7 +708,7 @@ function declaredDefaultEffort(
 ): ModelThinkingLevel | undefined {
   if (!Object.hasOwn(efforts, 'default')) return undefined
   const named = efforts.default
-  if (named === undefined || named === null || typeof named !== 'string' || named.length === 0) {
+  if (named === undefined || typeof named !== 'string' || named.length === 0) {
     invalid(provider, `model "${modelId}" reasoningEfforts.default must name a thinking level`)
   }
   if (!(named in THINKING_LEVEL_GATE)) {

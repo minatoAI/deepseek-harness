@@ -9,9 +9,10 @@ import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
-import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
+import { AssistantMessageEventStream } from '@earendil-works/pi-ai/utils/event-stream'
 import type { Api, Model, OpenAICompletionsCompat, Provider } from '@earendil-works/pi-ai'
 import { resolveProfiles } from '../src/config.ts'
+import { createModels, createProvider, getSupportedThinkingLevels } from '../src/models.ts'
 import { buildProvider, supportedProtocols } from '../src/provider.ts'
 import { assemble } from './assemble.ts'
 import { memoryAuth } from './auth-double.ts'
@@ -353,6 +354,28 @@ describe('hand-declared providers', () => {
     expect(() => buildProvider({ ...spec, api: 'quantum-telepathy' }))
       .toThrow(/cannot serve; supported protocols are/)
     expect(() => buildProvider(spec)).toThrow(/cannot serve; supported protocols are/)
+  })
+
+  it('delegates both stream methods from a static provider', () => {
+    const [model] = getBuiltinModels('deepseek')
+    if (model === undefined) throw new Error('the installed catalog ships no deepseek model')
+    const direct = new AssistantMessageEventStream()
+    const simple = new AssistantMessageEventStream()
+    const stream = vi.fn(() => direct)
+    const streamSimple = vi.fn(() => simple)
+    const provider = createProvider({
+      id: 'local',
+      name: 'Local',
+      models: [model],
+      auth: { apiKey: { name: 'Local', resolve: () => Promise.resolve({ auth: {}, source: 'Local' }) } },
+      api: { stream, streamSimple },
+    })
+    const context = { messages: [] }
+
+    expect(provider.stream(model, context)).toBe(direct)
+    expect(provider.streamSimple(model, context)).toBe(simple)
+    expect(stream).toHaveBeenCalledOnce()
+    expect(streamSimple).toHaveBeenCalledOnce()
   })
 
   it('leaves an unauthenticated route to its protocol rather than inventing a credential', async () => {
@@ -730,7 +753,7 @@ describe('per-model reasoning efforts', () => {
   it('keeps a catalog model’s offer when only default is named', () => {
     const [catalogModel] = getBuiltinModels('deepseek')
     if (catalogModel === undefined) throw new Error('the installed catalog ships no deepseek model')
-    const offered = getSupportedThinkingLevels(catalogModel as Model<Api>)
+    const offered = getSupportedThinkingLevels(catalogModel)
     const pick = offered.find(level => level !== 'off')
     if (pick === undefined) throw new Error('the installed deepseek model offers no thinking level')
 
@@ -785,7 +808,7 @@ describe('per-model reasoning efforts', () => {
   it('rejects a catalog default that the installed offer cannot take', () => {
     const [catalogModel] = getBuiltinModels('deepseek')
     if (catalogModel === undefined) throw new Error('the installed catalog ships no deepseek model')
-    const offered = new Set(getSupportedThinkingLevels(catalogModel as Model<Api>))
+    const offered = new Set(getSupportedThinkingLevels(catalogModel))
     const missing = (['minimal', 'low', 'medium', 'xhigh'] as const).find(level => !offered.has(level))
     if (missing === undefined) throw new Error('the installed deepseek model offers every intermediate level')
     expect(() => resolveProfiles({
@@ -794,7 +817,7 @@ describe('per-model reasoning efforts', () => {
   })
 
   it('refuses a default-only declaration on a non-reasoning catalog model', () => {
-    const nonReasoning = getBuiltinModels('openai').find(model => model.reasoning !== true)
+    const nonReasoning = getBuiltinModels('openai').find(model => !model.reasoning)
     if (nonReasoning === undefined) throw new Error('the installed openai catalog ships no non-reasoning model')
     expect(() => resolveProfiles({
       openai: { models: [{ id: nonReasoning.id, reasoningEfforts: { default: 'medium' } }] },

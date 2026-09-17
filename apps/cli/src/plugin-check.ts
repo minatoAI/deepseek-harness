@@ -416,7 +416,7 @@ export async function checkBundle(target: string): Promise<PluginCheckReport> {
   const rows: Array<{ id?: string; name: string }> = []
   for (const patch of patches) {
     for (const entry of patch.insert ?? []) {
-      if (typeof entry !== 'object' || entry === null) continue
+      if (typeof entry !== 'object') continue
       const name = (entry as { name?: unknown }).name
       if (typeof name !== 'string') continue
       const id = (entry as { id?: unknown }).id

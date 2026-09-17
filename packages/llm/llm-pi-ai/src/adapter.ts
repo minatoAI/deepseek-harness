@@ -26,7 +26,6 @@
  * @module dsh-llm-pi-ai/adapter
  */
 
-import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type {
   Api,
   AuthContext,
@@ -61,6 +60,7 @@ import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { piContextImageBytes, toPiContext } from './context.ts'
 import { formatImageMegabytes, nextDegradedImageBudget, shouldDegradeImages } from './image-degrade.ts'
+import { createModels, getSupportedThinkingLevels } from './models.ts'
 import { classifyPiAiError, toStreamChunks } from './stream.ts'
 import { takeTransportCause } from './transport-cause.ts'
 
