@@ -6,6 +6,7 @@
 
 ## 记录列表（按完成时间倒序）
 
+- **2026-09-24** — [在 Git WorkTree 隔离下同步官方 `dsh-v0.1.7-rc.1`](2026-09-24-upstream-sync-rc1.md)：官方自 alpha.2 之后的 156 个提交并入一个叠在 alpha.2 升级分支上的新分支，两次同步成果共存、不必重做 alpha.2 的冲突处理；`agent-team` 的 typert/Remote 层随官方投影化重写、本地 `'tools'` 注入与 `@deepseek-ai/dsh-tools` 依赖保留，`dsh plugin` 同时保留官方的版本豁免子命令与本地 `check`——21 个本地功能提交全部存活。
 - **2026-09-23** — [在 Git WorkTree 隔离下同步官方 `dsh-v0.1.7-alpha.2`](2026-09-23-upstream-sync-alpha2.md)：官方 162 个提交在独立 worktree 里并入本地血统，与本地改动重复或冲突之处一律以官方为准、本地独有能力全部保留；修复两处合并回归——被误删的本地独有 `wait_agent` 提示词、以及拒绝 MCP 裸 `{ type: 'object' }` 对象根的注册期校验（属合并前既有缺陷），cordis 目录按源注释重新生成。
 - **2026-09-18** — [收窄内置 Web 搜索禁用：只停 DeepSeek 搜索 provider](2026-09-18-disable-web-search-provider.md)：profile 补丁层改为只禁用 `web-search-deepseek`，搜索调用在发出请求前以 `WEB_PROVIDER_CONFIGURED_MISSING` 失败、额度零消耗，匿名抓取的 `web-fetch-http` 保留 `web_fetch`；补丁文件注释同步更正。
 - **2026-09-17** — [内置 Web Search 评测与禁用](2026-09-17-builtin-web-search-assessment.md)：扫描 519 个会话证实"用不了"源于凭证而非插件，与上游比对确认源码未改；查证官方文档确认服务端工具机制与成本结构，实测未命中缓存输入占账单 79.9% 且结构性不可优化；同查询对照显示来源质量不及 dsh-jina，据此在 profile 补丁层禁用整条 `web` 栈。
