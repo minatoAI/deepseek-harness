@@ -73,3 +73,11 @@
 | 验收 B：改坏 schema 的副本 | exit 1，指名报错工具 |
 | `--json` 输出 | 可解析 |
 | pre-push 钩子 `typecheck:contracts-ready` | 通过后推送成功 |
+
+## 更正（2026-09-23）
+
+同步官方上游 `dsh-v0.1.7-alpha.2` 时确认：「改动过程」中「因无 properties 形态现在注册期即拒」这一约束与官方行为冲突。官方 `mcp-client` 把 MCP 服务器发布的 `inputSchema` 原样透传给 `tools.register`，而按 MCP 规范，无参数工具发布的正是裸 `{ type: 'object' }`；该约束会让这类工具在注册期抛错，`mcp-client` 捕获后回滚并静默丢弃该服务器的全部工具（见 `packages/mcp/mcp-client/src/tools.ts`）。
+
+按「官方为准」的处理原则，`assertObjectParameters` 放宽为：对象根没有 `properties` 时视为开放对象直接放行，仅在其声明了 `required` 时校验 `required` 必须是属性名字符串数组；`oneOf`/`anyOf` 组合根仍走 `assertCompositeRootParameters`，原有分支校验不变。因此本记录中「调整既有测试 fixture」一条的后半句已失效，`tests/register-parameters.spec.ts` 中裸对象根用例改为断言原样透传，组合根无可用分支的用例保留。
+
+该约束在同步之前就已是本地缺陷而非合并引入：在合并前本地 `master` 的独立工作树上运行 `vitest run packages/mcp/mcp-client/tests packages/core/tools/tests/register-parameters.spec.ts`，得到 69 failed / 66 passed，失败原因与本记录描述的注册期拒绝完全一致。

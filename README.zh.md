@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-**已进行 12 个改动，具体信息见 [change-logs/](change-logs/README.zh.md)。**
+**已进行 13 个改动，具体信息见 [change-logs/](change-logs/README.zh.md)。**
 
 DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness（智能体框架）。
 
