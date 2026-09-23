@@ -493,6 +493,15 @@ function assertCompositeRootParameters(name: string, parameters: Record<string, 
 function assertObjectParameters(name: string, parameters: Record<string, unknown>): void {
   const properties = parameters.properties
   if (properties === undefined) {
+    const composite = parameters.oneOf ?? parameters.anyOf
+    if (composite === undefined) {
+      // An open object root — `type: 'object'` with neither `properties` nor a
+      // composition — is valid JSON Schema, and MCP servers publish it for
+      // tools that take no arguments, so the registration passes it through;
+      // only the `required` list still has a checkable contract.
+      if (Object.hasOwn(parameters, 'required')) assertRequiredNames(name, parameters.required)
+      return
+    }
     assertCompositeRootParameters(name, parameters)
     return
   }
@@ -505,15 +514,23 @@ function assertObjectParameters(name: string, parameters: Record<string, unknown
     }
   }
   if (Object.hasOwn(parameters, 'required')) {
-    const required = parameters.required
-    if (!isPlainJsonArray(required) || required.some(entry => typeof entry !== 'string')) {
-      throw new Error(`tool "${name}": invalid parameters schema: required must be an array of property names. ${REGISTER_PARAMETERS_FIX_HINT}`)
-    }
-    for (const key of required as string[]) {
+    assertRequiredNames(name, parameters.required)
+    for (const key of parameters.required as string[]) {
       if (!Object.hasOwn(properties, key)) {
         throw new Error(`tool "${name}": invalid parameters schema: required names "${key}" which is not in properties. ${REGISTER_PARAMETERS_FIX_HINT}`)
       }
     }
+  }
+}
+
+/**
+ * Reject a `required` that is not an array of property-name strings.
+ * @param name - the tool name, included in every error.
+ * @param required - the caller-provided `required` value.
+ */
+function assertRequiredNames(name: string, required: unknown): void {
+  if (!isPlainJsonArray(required) || required.some(entry => typeof entry !== 'string')) {
+    throw new Error(`tool "${name}": invalid parameters schema: required must be an array of property names. ${REGISTER_PARAMETERS_FIX_HINT}`)
   }
 }
 
@@ -539,9 +556,11 @@ function isPropertyTable(candidate: Record<string, unknown>): boolean {
  * model call. Two input forms are accepted:
  * - a complete JSON Schema rooted at `type: 'object'` — structurally
  *   validated, then returned byte-for-byte unchanged (the model-facing wire
- *   format is never rewritten). An object root with no `properties` may
- *   instead compose `oneOf`/`anyOf` branches (for example a zod
- *   discriminated union); every branch meets the same root contract;
+ *   format is never rewritten). An object root with no `properties` is
+ *   accepted as an open object (MCP servers publish `{ type: 'object' }` for
+ *   tools that take no arguments) or may compose `oneOf`/`anyOf` branches
+ *   (for example a zod discriminated union); every branch meets the same
+ *   root contract;
  * - a defineTool-style property table (`{ field: { type, required? } }`)
  *   with no top-level `type` key — converted through
  *   {@link parameterSchemaSpecToJsonSchema} into a new full schema.
@@ -627,6 +646,13 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
    */
   execute(args: InferArgs<S>, exec: ToolRunContext): Promise<InferValue<NoInfer<O>>>
   /**
+   * Install execution-prepared content before result policies.
+   * @param exec - immutable execution identity and arguments.
+   * @param result - normalized outcome entering post-execute.
+   * @returns replacement content, or undefined to preserve it.
+   */
+  projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined
+  /**
    * Optional last-mile content transform for every normalized outcome. Unlike
    * `execute`, arguments remain `unknown` because invalid-input failures also
    * reach this callback. See {@link ToolDefinition.finalizeContent}.
@@ -665,6 +691,8 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
   const userExecute = options.execute
   // oxlint-disable-next-line typescript/unbound-method
   const userFinalizeContent = options.finalizeContent
+  // oxlint-disable-next-line typescript/unbound-method
+  const userProjectContent = options.projectContent
   // oxlint-disable-next-line typescript/unbound-method
   const userRender = options.output.render
   // oxlint-disable-next-line typescript/unbound-method
@@ -706,6 +734,9 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
       if (violations.length > 0) throw new ToolArgsError(violations)
       return userExecute(args as InferArgs<S>, exec) as Promise<JsonValue>
     },
+  }
+  if (userProjectContent) {
+    tool.projectContent = (exec, result) => userProjectContent(exec, result)
   }
   if (userFinalizeContent) {
     tool.finalizeContent = (exec, result) => userFinalizeContent(exec, result)

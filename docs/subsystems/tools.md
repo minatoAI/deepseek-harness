@@ -8,7 +8,7 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 ## `ToolDefinition` — a registered tool
 
-A `ToolSchema` (the model-facing fields) plus a mandatory canonical output declaration, the `execute` function, host-only scheduler metadata, an optional final-content callback, and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `output`/`execute`/`finalizeContent`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` must never leak into a model request.
+A `ToolSchema` (the model-facing fields) plus a mandatory canonical output declaration, the `execute` function, host-only scheduler metadata, an optional final-content callback, and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `output`/`execute`/`projectContent`/`finalizeContent`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` must never leak into a model request.
 
 ```ts type-equiv
 /** Tool-owned canonical output contract used after the body returns a JSON value. */
@@ -38,6 +38,16 @@ interface ToolDefinition extends ToolSchema {
    * @returns the canonical value declared by `output.schema`.
    */
   execute(args: unknown, exec: ToolRunContext): Promise<unknown>
+  /**
+   * Install execution-prepared content before `tools/post-execute` policies.
+   * The callback is captured when the call starts and runs once for a
+   * normalized outcome entering post-execute. Policy replacements remain
+   * authoritative; pipeline failures that bypass post-execute skip projection.
+   * @param exec - immutable execution identity and arguments.
+   * @param result - normalized result before post-execute policy.
+   * @returns replacement content, or undefined to preserve the renderer output.
+   */
+  projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined
   /**
    * Synchronous last-mile transform for model-facing content. The registry
    * snapshots this callback when execution starts and invokes it exactly once
@@ -169,7 +179,7 @@ interface ToolRestriction {
 
 ## Execution: extensible waterfalls plus monotonic policy
 
-`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput` with a required readonly `signal`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace the result) → optional definition-owned `finalizeContent` → `tools/result` (the immutable authoritative outcome). Only the `tools/execute` view may replace the required signal. The outcome is a `ToolExecutionResult`.
+`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput` with a required readonly `signal`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `projectContent` → `tools/post-execute` (inspect/replace the result) → optional definition-owned `finalizeContent` → `tools/result` (the immutable authoritative outcome). Only the `tools/execute` view may replace the required signal. The outcome is a `ToolExecutionResult`.
 
 ```ts type-equiv
 /** Opaque call identity that permits correlation without exposing mutable execution state. */
@@ -514,10 +524,11 @@ presentAs(mode: ToolPresentationMode): () => void
  * Register globally or in the calling agent scope. Scoped tools shadow
  * globals; duplicates within one layer and the reserved `run_code` name fail.
  * `parameters` is normalized at registration: a complete JSON Schema passes
- * through byte-for-byte (with a structural validation; an object root may
- * compose `oneOf`/`anyOf` branches instead of declaring `properties`),
- * a defineTool-style property table is converted with a warning, and
- * anything else throws a tool-named error — so a malformed schema fails
+ * through byte-for-byte after a structural validation that accepts an
+ * object root omitting `properties` — the open `{ type: 'object' }` an MCP
+ * server publishes for a no-argument tool — or composing `oneOf`/`anyOf`
+ * branches; a defineTool-style property table is converted with a warning,
+ * and anything else throws a tool-named error, so a malformed schema fails
  * here instead of at the first model call.
  * @param definition - tool schema, execution, and optional finalization/presentation callbacks.
  * @returns the exact disposer that unregisters the tool.

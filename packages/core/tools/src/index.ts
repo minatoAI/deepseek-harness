@@ -237,6 +237,16 @@ export interface ToolDefinition extends ToolSchema {
    */
   execute(args: unknown, exec: ToolRunContext): Promise<unknown>
   /**
+   * Install execution-prepared content before `tools/post-execute` policies.
+   * The callback is captured when the call starts and runs once for a
+   * normalized outcome entering post-execute. Policy replacements remain
+   * authoritative; pipeline failures that bypass post-execute skip projection.
+   * @param exec - immutable execution identity and arguments.
+   * @param result - normalized result before post-execute policy.
+   * @returns replacement content, or undefined to preserve the renderer output.
+   */
+  projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined
+  /**
    * Synchronous last-mile transform for model-facing content. The registry
    * snapshots this callback when execution starts and invokes it exactly once
    * for every normalized outcome, including pipeline failures that bypass
@@ -819,6 +829,8 @@ export class ToolRuntime extends Service {
   private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
   /** Definition-owned final content transform snapshotted before policy begins. */
   private contentFinalizers = new WeakMap<ToolRunContext, ToolDefinition['finalizeContent']>()
+  /** Execution-prepared content installed before post-execute policy. */
+  private contentProjectors = new WeakMap<ToolRunContext, ToolDefinition['projectContent']>()
   private readonly layers = new ScopedLayers(
     scope => new ToolLayer(scope),
     () => { this.ctx.emit('tools/change') },
@@ -1047,10 +1059,11 @@ export class ToolRuntime extends Service {
    * Register globally or in the calling agent scope. Scoped tools shadow
    * globals; duplicates within one layer and the reserved `run_code` name fail.
    * `parameters` is normalized at registration: a complete JSON Schema passes
-   * through byte-for-byte (with a structural validation; an object root may
-   * compose `oneOf`/`anyOf` branches instead of declaring `properties`),
-   * a defineTool-style property table is converted with a warning, and
-   * anything else throws a tool-named error — so a malformed schema fails
+   * through byte-for-byte after a structural validation that accepts an
+   * object root omitting `properties` — the open `{ type: 'object' }` an MCP
+   * server publishes for a no-argument tool — or composing `oneOf`/`anyOf`
+   * branches; a defineTool-style property table is converted with a warning,
+   * and anything else throws a tool-named error, so a malformed schema fails
    * here instead of at the first model call.
    * @param definition - tool schema, execution, and optional finalization/presentation callbacks.
    * @returns the exact disposer that unregisters the tool.
@@ -1450,6 +1463,7 @@ export class ToolRuntime extends Service {
     // invalid-args failure of a NON-ABORTED collapsed call drop it (the call
     // could never execute).
     const capturedFinalizer = visible?.finalizeContent?.bind(visible)
+    const capturedProjector = visible?.projectContent?.bind(visible)
     const finalizerFor = (): ToolDefinition['finalizeContent'] | undefined =>
       collapsed && !signal.aborted ? undefined : capturedFinalizer
     try {
@@ -1460,6 +1474,7 @@ export class ToolRuntime extends Service {
       const execution: MutableToolRunContext = { ...base, arguments: deepFreeze(detached) }
       this.deferredContexts.set(execution, deferredContexts)
       this.contentFinalizers.set(execution, finalizerFor())
+      if (!collapsed) this.contentProjectors.set(execution, capturedProjector)
       this.cancellationStates.set(execution, {
         callerSignal: signal,
         bodyInvoked: false,
@@ -1654,7 +1669,13 @@ export class ToolRuntime extends Service {
    */
   private async finalizeScheduledExecution(exec: ToolRunContext, result: ToolExecutionResult): Promise<ToolExecutionResult> {
     try {
-      const postResult = await this.postExecute(exec, result)
+      const project = this.contentProjectors.get(exec)
+      this.contentProjectors.delete(exec)
+      const content = project?.(exec, result)
+      const projected = content === undefined
+        ? result
+        : this.markCanonical(exec, this.materializeFinalResult({ ...result, content }))
+      const postResult = await this.postExecute(exec, projected)
       return this.finishScheduledExecution(
         exec,
         this.callerCancelled(exec) && !postResult.isError

@@ -108,9 +108,14 @@ describe('normalizeRegisteredParameters', () => {
     expect(normalizeRegisteredParameters('stagehand_tabs', union)).toBe(union)
   })
 
+  it('passes an open object root with no properties through byte-for-byte', () => {
+    // MCP servers publish `{ type: 'object' }` for tools that take no
+    // arguments; registration forwards it to the model API unchanged.
+    const open = { type: 'object' }
+    expect(normalizeRegisteredParameters('mcp__srv__noop', open)).toBe(open)
+  })
+
   it('rejects composite roots with no usable branches with a tool-named error', () => {
-    expect(() => normalizeRegisteredParameters('stagehand_tabs', { type: 'object' }))
-      .toThrow(/stagehand_tabs/)
     expect(() => normalizeRegisteredParameters('stagehand_tabs', { type: 'object', oneOf: [] }))
       .toThrow(/stagehand_tabs/)
     expect(() => normalizeRegisteredParameters('stagehand_tabs', { type: 'object', oneOf: [42] }))

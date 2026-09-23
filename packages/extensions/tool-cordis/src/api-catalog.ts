@@ -1654,6 +1654,20 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'pluginRegistryProbe',
+    summary: 'Compares public registry responses on the Host; the Client owns the initial selection.',
+    description: 'Compares public registry responses on the Host; the Client owns the initial selection.',
+    methods: [
+      {
+        signature: '@Remote async fastest(): Promise<string | null>',
+        description: 'Race npm and npmmirror HTTPS ping responses through the Host\'s fetch proxy. Concurrent readers share a probe; a winner cancels and awaits the other request.',
+        parameters: [],
+        returns: 'the first registry with a successful response, or null when disabled or neither responds successfully; results are cached.',
+        throws: ['rejects when the service has been unloaded.'],
+      },
+    ],
+  },
+  {
     key: 'productTelemetry',
     summary: 'Host analytics sender.',
     description: 'Host analytics sender. Mounting alone sends nothing; the owning fiber drains it on unload.',
@@ -3130,7 +3144,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'register(definition: ToolDefinition): () => void',
-        description: 'Register globally or in the calling agent scope. Scoped tools shadow globals; duplicates within one layer and the reserved `run_code` name fail. `parameters` is normalized at registration: a complete JSON Schema passes through byte-for-byte (with a structural validation; an object root may compose `oneOf`/`anyOf` branches instead of declaring `properties`), a defineTool-style property table is converted with a warning, and anything else throws a tool-named error — so a malformed schema fails here instead of at the first model call.',
+        description: 'Register globally or in the calling agent scope. Scoped tools shadow globals; duplicates within one layer and the reserved `run_code` name fail. `parameters` is normalized at registration: a complete JSON Schema passes through byte-for-byte after a structural validation that accepts an object root omitting `properties` — the open `{ type: \'object\' }` an MCP server publishes for a no-argument tool — or composing `oneOf`/`anyOf` branches; a defineTool-style property table is converted with a warning, and anything else throws a tool-named error, so a malformed schema fails here instead of at the first model call.',
         parameters: [{ name: 'definition', description: 'tool schema, execution, and optional finalization/presentation callbacks.' }],
         returns: 'the exact disposer that unregisters the tool.',
       },
@@ -6203,7 +6217,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionFollowRequest',
-    declaration: 'export interface SessionFollowRequest {\n    readonly address: SessionAddress;\n    readonly maxMessages?: number;\n    readonly assistantStream?: true;\n}',
+    declaration: 'export interface SessionFollowRequest extends Pick<SessionPageRequest, \'maxMessages\' | \'turnWindow\'> {\n    readonly address: SessionAddress;\n    readonly assistantStream?: true;\n}',
   },
   {
     name: 'SessionForkRequest',
@@ -6307,7 +6321,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionPageRequest',
-    declaration: 'export interface SessionPageRequest {\n    readonly address: SessionAddress;\n    readonly throughSeq: number;\n    readonly beforeSeq?: number;\n    readonly maxMessages?: number;\n}',
+    declaration: 'export interface SessionPageRequest {\n    readonly address: SessionAddress;\n    readonly throughSeq: number;\n    readonly beforeSeq?: number;\n    readonly maxMessages?: number;\n    readonly turnWindow?: {\n        readonly minMessages: number;\n        readonly minTurns: number;\n    };\n}',
   },
   {
     name: 'SessionPersistenceCreateOptions',
@@ -7195,7 +7209,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolDispatchExecution',
