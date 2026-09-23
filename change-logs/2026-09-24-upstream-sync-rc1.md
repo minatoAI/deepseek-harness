@@ -136,3 +136,10 @@ pnpm run verify-translation-pairing
 pnpm run typecheck
 pnpm exec vitest run packages/experimental/agent-team/tests packages/experimental/tool-agent-team/tests apps/cli/tests/plugin-check.spec.ts apps/cli/tests/plugin.spec.ts packages/core/tools/tests/register-parameters.spec.ts packages/session/session-title-llm/tests
 ```
+
+## 更正（2026-09-24）
+
+本节随提交 `docs(change-logs): record the rc.1 push and re-confirm the local plugin check` 追加，前文未改动。
+
+- 「遗留」中「本次不推送，保留在本地分支供复核」作废：该分支随后推送到个人远端 `origin`（`https://github.com/minatoAI/deepseek-harness.git`），新建远端分支 `upgrade/upstream-0.1.7-rc.1` 并建立上游跟踪，未使用强制推送，未触碰 `master`。pre-push 钩子执行增量 typecheck（`npm run build:lib:host && npm run typecheck:contracts-ready`）通过。
+- 「边界」的判据经复核仍然成立，本地 `dsh plugin check` 予以保留。官方 `dsh plugin` 的子命令只有 `allow-version`、`revoke-version`、`version-exemptions`，没有离线校验入口。官方新增的 `packages/boot/app-boot/src/compatibility-preflight.ts` 只读 `package.json` 的 `peerDependencies` 并与运行版本比对，不导入插件代码，对 `tools`、`inject`、`slots`、`webServer` 零引用。官方确实有 `assertSupportedJsonSchema`，但调用点全在运行期的注册与检查边界（`packages/core/tools/src/schema.ts`、`packages/core/tools/src/index.ts`、`packages/extensions/cordis-host-runner`、`packages/mcp/mcp-client/src/tools.ts`），必须先安装并启动进程。本地 `dsh plugin check` 的独有价值是把同一套 schema 校验、以及 `inject`／`slots`／`webServer` 路由清点提前到安装之前离线完成，官方尚未提供等价能力。
